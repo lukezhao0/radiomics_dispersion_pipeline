@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment files / secrets
+.env
+*.key
+
+# OS/editor files
+.DS_Store
+.vscode/
+.idea/
+
+# Large/output folders
+outputs/
+results/
+logs/
+*.log

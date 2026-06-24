@@ -194,6 +194,14 @@ PLOT_EXPLANATIONS: Dict[str, str] = {
     "per_fold_regression_mae.png": (
         "Held-out MAE for the best regression setting within each outer split."
     ),
+    "cost_estimate_vs_actual_tokens.png": (
+        "Grouped comparison of a-priori token estimates (prompt, completion cap, and total upper bound) "
+        "versus post-run cumulative token usage from API billing metadata."
+    ),
+    "cost_estimate_vs_actual_usd.png": (
+        "Side-by-side USD cost: no-cache upper bound, cache-aware upper bound from pre-run estimation, "
+        "and actual billed cost after the pipeline completes."
+    ),
 }
 
 

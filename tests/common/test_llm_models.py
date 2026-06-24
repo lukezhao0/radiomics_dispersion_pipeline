@@ -7,6 +7,7 @@ import pytest
 from common.llm_models import (
     DEFAULT_MODEL,
     get_model_config,
+    load_model_env,
     normalize_model_name,
     resolve_api_key,
 )
@@ -46,6 +47,44 @@ def test_resolve_api_key_switches_by_model() -> None:
 def test_resolve_api_key_missing_raises() -> None:
     with pytest.raises(RuntimeError, match="NEW_SECUREGPT_API_KEY"):
         resolve_api_key("gpt-5", env={"SANDBOX_API_KEY": "sandbox-key"})
+
+
+def test_load_model_env_uses_sandbox_key_for_gpt5_nano(tmp_path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "SANDBOX_API_KEY=sandbox-key\nNEW_SECUREGPT_API_KEY=securegpt-key\n",
+        encoding="utf-8",
+    )
+    cfg, api_key = load_model_env("gpt-5-nano", env_path=str(env_file))
+    assert cfg.api_key_env_var == "SANDBOX_API_KEY"
+    assert api_key == "sandbox-key"
+
+
+def test_configure_api_uses_sandbox_key_for_gpt5_nano(tmp_path) -> None:
+    import approach1.api as api_mod
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "SANDBOX_API_KEY=sandbox-key\nNEW_SECUREGPT_API_KEY=securegpt-key\n",
+        encoding="utf-8",
+    )
+    api_mod.configure_api(str(env_file), "gpt-5-nano", "2024-12-01-preview")
+    assert api_mod.API_KEY == "sandbox-key"
+    assert api_mod.get_default_client().api_key_env_var == "SANDBOX_API_KEY"
+
+
+def test_configure_llm_uses_sandbox_key_for_gpt5_nano(tmp_path, monkeypatch) -> None:
+    import approach2.extraction.config as llm_config
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "SANDBOX_API_KEY=sandbox-key\nNEW_SECUREGPT_API_KEY=securegpt-key\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("SANDBOX_API_KEY", raising=False)
+    monkeypatch.delenv("NEW_SECUREGPT_API_KEY", raising=False)
+    llm_config.configure_llm("gpt-5-nano", env_path=str(env_file))
+    assert llm_config.API_KEY == "sandbox-key"
 
 
 def test_estimate_cost_uses_model_pricing(monkeypatch) -> None:

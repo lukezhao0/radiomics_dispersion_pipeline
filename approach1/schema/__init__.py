@@ -1,6 +1,10 @@
 """Schema validation public API."""
 
-from .prediction import extract_json_from_text, validate_prediction_obj
+from .prediction import (
+    extract_json_from_text,
+    sanitize_prediction_obj_for_validation,
+    validate_prediction_obj,
+)
 from .records import (
     build_pred_record,
     normalize_pred_record,
@@ -11,6 +15,7 @@ from .records import (
 
 __all__ = [
     "validate_prediction_obj",
+    "sanitize_prediction_obj_for_validation",
     "extract_json_from_text",
     "build_pred_record",
     "validate_saved_pred_record",

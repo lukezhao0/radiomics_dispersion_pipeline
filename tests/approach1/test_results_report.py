@@ -36,6 +36,31 @@ def _write_minimal_config(tmp_path, shotset: str, modality: str) -> str:
     }
     (cfg_dir / "evaluation_metrics_summary.json").write_text(json.dumps(metrics), encoding="utf-8")
     (cfg_dir / "evaluation_metrics_from_csv.txt").write_text("Dispersion score (regression):\n  N_used = 2", encoding="utf-8")
+    run_config["apriori_cost"] = {
+        "n_calls": 2,
+        "prompt_tokens_estimated_total": 10000,
+        "cached_prompt_tokens_estimated": 2000,
+        "uncached_prompt_tokens_estimated": 8000,
+        "completion_tokens_upper_estimated": 32000,
+        "estimated_no_cache_cost_usd_upper": 0.5,
+        "estimated_cache_adjusted_cost_usd_upper": 0.45,
+        "estimated_cache_savings_usd": 0.05,
+    }
+    (cfg_dir / "run_config.json").write_text(json.dumps(run_config), encoding="utf-8")
+    token_cost = {
+        "cumulative": {
+            "calls": 2,
+            "prompt_tokens": 9500,
+            "cached_tokens": 1800,
+            "uncached_prompt_tokens": 7700,
+            "completion_tokens": 800,
+            "reasoning_tokens": 0,
+            "total_tokens": 10300,
+            "estimated_cost_usd": 0.12,
+            "estimated_cache_savings_usd": 0.004,
+        }
+    }
+    (cfg_dir / "token_cost_report.json").write_text(json.dumps(token_cost), encoding="utf-8")
     pd.DataFrame([
         {
             "case_id": "SYNTH_001",
@@ -77,3 +102,5 @@ def test_build_approach1_results_html(tmp_path) -> None:
     assert "shotset_a" in html
     assert "Dispersion MAE" in html
     assert "Metric glossary" in html
+    assert "Cost estimate vs actual" in html
+    assert "cost_estimate_vs_actual_tokens.png" in html

@@ -10,6 +10,7 @@ import numpy as np
 
 from ..config import DISPERSION_HIGH_THRESHOLD
 from ..models import Case, RunConfig
+from ..prompts.templates import report_text_for_validation
 from ..prompts.tokens import make_case_token
 from ..text_utils import has_report_text
 from .prediction import validate_prediction_obj
@@ -148,6 +149,7 @@ def validate_saved_pred_record(
         obj,
         expected_case_id=test_case.case_id,
         expected_token=expected_token,
+        report_text=report_text_for_validation(test_case, rc.modality),
     )
     if not ok:
         return False, msg

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
+from common.llm_models import get_model_config, normalize_model_name
+
 from .. import config
 from .client import SecureGPTClient
 from .cost import (
@@ -55,20 +57,27 @@ def configure_api(
     reasoning_effort: str | None = None,
 ) -> None:
     global _default_client, API_KEY, URL, HEADERS
-    config.apply_model_config(deployment)
+    model = normalize_model_name(deployment)
+    cfg = get_model_config(model)
+    config.apply_model_config(model)
     if reasoning_effort is not None:
         config.set_reasoning_effort(reasoning_effort)
     _default_client = SecureGPTClient(
         env_path=env_path,
-        deployment=deployment,
+        deployment=model,
         api_version=api_version,
         cost_tracker=_default_tracker,
     )
     URL = _default_client.url
     HEADERS = _default_client.headers
     API_KEY = _default_client.headers.get("api-key")
-    config.DEPLOYMENT = deployment
+    config.DEPLOYMENT = model
     config.API_VERSION = api_version
+    print(
+        f"[INIT] MODEL={cfg.deployment} DEPLOYMENT={cfg.deployment} API_VERSION={api_version} "
+        f"api_key_env={cfg.api_key_env_var} pricing={cfg.pricing_label}"
+    )
+    print(f"[INIT] URL={URL}")
 
 
 def reset_cost_tracker() -> None:

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from approach1 import config
 from approach1.api import client as client_mod
 from approach1.api.client import SecureGPTClient
+from common.llm_models import get_model_config
 
 
 def _mock_response() -> MagicMock:
@@ -29,8 +30,7 @@ def _mock_response() -> MagicMock:
 
 def test_chat_includes_reasoning_effort_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "REASONING_EFFORT", "minimal")
-    monkeypatch.setattr(client_mod, "resolve_api_key", lambda *args, **kwargs: "test-key")
-    monkeypatch.setattr(client_mod, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr(client_mod, "load_model_env", lambda *args, **kwargs: (get_model_config("gpt-5-nano"), "test-key"))
     captured: dict = {}
 
     def _capture_post(url, headers, json, timeout):
@@ -50,8 +50,7 @@ def test_chat_includes_reasoning_effort_when_configured(monkeypatch: pytest.Monk
 
 def test_chat_omits_reasoning_effort_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(config, "REASONING_EFFORT", "")
-    monkeypatch.setattr(client_mod, "resolve_api_key", lambda *args, **kwargs: "test-key")
-    monkeypatch.setattr(client_mod, "load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr(client_mod, "load_model_env", lambda *args, **kwargs: (get_model_config("gpt-5-nano"), "test-key"))
     captured: dict = {}
 
     def _capture_post(url, headers, json, timeout):

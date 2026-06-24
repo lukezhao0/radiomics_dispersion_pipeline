@@ -11,7 +11,7 @@ __version__ = "1.0.0"
 
 CSV_PATH = "/Users/lukezhao/projects/onc/PROCESSED_TRIMMED_path_cases_MRI_status.csv"
 OUT_DIR = os.path.join(os.getcwd(), "securegpt_dispersion_3tier_outputs")
-ENV_PATH = os.getenv("ENV_PATH", "/Users/lukezhao/projects/onc/.env")
+ENV_PATH = os.getenv("SANDBOX_ENV_PATH") or os.getenv("ENV_PATH") or "/Users/lukezhao/projects/onc/.env"
 
 API_VERSION = "2024-12-01-preview"
 MODEL = DEFAULT_MODEL

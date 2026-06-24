@@ -7,9 +7,9 @@ import pytest
 from common.reasoning_effort import DEFAULT_REASONING_EFFORT, normalize_reasoning_effort
 
 
-def test_default_reasoning_effort_is_minimal() -> None:
-    assert DEFAULT_REASONING_EFFORT == "minimal"
-    assert normalize_reasoning_effort() == "minimal"
+def test_default_reasoning_effort_is_medium() -> None:
+    assert DEFAULT_REASONING_EFFORT == "medium"
+    assert normalize_reasoning_effort() == "medium"
 
 
 @pytest.mark.parametrize("raw", ["none", "null", "", "NONE"])

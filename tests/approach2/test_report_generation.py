@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -87,9 +88,33 @@ def test_generate_reports_minimal_synthetic(tmp_path):
     }])
     metrics.to_csv(out_dir / "nested_outer_metrics_summary.csv", index=False)
     preds.to_csv(out_dir / "nested_outer_predictions_case_deduplicated.csv", index=False)
+    (out_dir / "llm_cost_estimate_apriori.json").write_text(json.dumps({
+        "n_calls": 10,
+        "estimated_prompt_tokens": 50000,
+        "estimated_completion_cap_tokens": 160000,
+        "no_cache_estimated_cost_usd": 1.0,
+        "cache_aware_estimated_cost_usd": 0.8,
+        "cache_aware_estimated_cached_tokens": 10000,
+        "cache_aware_estimated_cache_savings_usd": 0.05,
+    }), encoding="utf-8")
+    (out_dir / "llm_token_cost_report.json").write_text(json.dumps({
+        "calls": 10,
+        "prompt_tokens": 48000,
+        "completion_tokens": 12000,
+        "total_tokens": 60000,
+        "estimated_cost_usd": 0.35,
+        "cached_tokens": 9000,
+        "uncached_prompt_tokens": 39000,
+        "reasoning_tokens": 0,
+        "estimated_cache_savings_usd": 0.04,
+        "cost_type": "post_run_actual",
+    }), encoding="utf-8")
 
     paths = generate_all_reports(str(out_dir), force=True)
     assert Path(paths["results_html"]).is_file()
+    results_html = (out_dir / "automated_results_report.html").read_text(encoding="utf-8")
+    assert "Cost estimate vs actual" in results_html
+    assert "cost_estimate_vs_actual_usd.png" in results_html
     assert Path(paths["interpretability_html"]).is_file()
     assert Path(paths["missed_case_html"]).is_file()
 

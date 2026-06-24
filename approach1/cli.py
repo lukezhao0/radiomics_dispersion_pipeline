@@ -24,6 +24,7 @@ from .logging_setup import Tee
 from .evaluation.results_report import build_approach1_results_html
 from .orchestration import run_one_config, save_aggregate_summary
 from .splits import build_run_configs
+from common.llm_models import DEFAULT_MODEL, normalize_model_name
 from common.reasoning_effort import DEFAULT_REASONING_EFFORT, REASONING_EFFORT_CHOICES
 
 
@@ -34,21 +35,21 @@ def main() -> None:
     parser.add_argument("--env-path", default=config.ENV_PATH, help="Path to .env containing model-specific API keys.")
     parser.add_argument(
         "--model",
-        default=None,
+        default=DEFAULT_MODEL,
         choices=["gpt-5-nano", "gpt-5"],
         help="LLM deployment to use (gpt-5-nano uses SANDBOX_API_KEY; gpt-5 uses NEW_SECUREGPT_API_KEY).",
     )
     parser.add_argument(
         "--deployment",
-        default=config.DEPLOYMENT,
-        help="SecureGPT/Azure deployment name (alias for --model; default: gpt-5-nano).",
+        default=None,
+        help="Deprecated alias for --model.",
     )
     parser.add_argument("--api-version", default=config.API_VERSION, help="Azure OpenAI API version.")
     parser.add_argument(
         "--reasoning-effort",
         default=DEFAULT_REASONING_EFFORT,
         choices=list(REASONING_EFFORT_CHOICES),
-        help="GPT-5 reasoning effort sent to the API (default: minimal; use 'none' to omit).",
+        help="GPT-5 reasoning effort sent to the API (default: medium; use 'none' to omit).",
     )
     parser.add_argument("--yes", "-y", action="store_true", help="Skip the interactive a-priori cost confirmation prompt.")
     parser.add_argument("--skip-preflight", action="store_true", help="Skip the initial small API connectivity test.")
@@ -75,7 +76,7 @@ def main() -> None:
         help="Build approach1_results_report.html from existing artifacts in --outdir and exit (no API calls).",
     )
     args = parser.parse_args()
-    selected_model = args.model or args.deployment
+    selected_model = normalize_model_name(args.deployment or args.model)
 
     if args.results_report_only:
         build_approach1_results_html(args.outdir)

@@ -10,7 +10,18 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from common.cost_comparison import (
+    APPROACH1_APRIORI,
+    aggregate_apriori_from_run_configs,
+    build_cost_comparison_summary_df,
+    build_per_config_cost_comparison_df,
+    extract_actual_cumulative,
+    generate_cost_comparison_plots,
+    normalize_apriori_estimate,
+)
+
 from .. import config
+from ..api.cost import CONFIG_COST_FILENAME, PIPELINE_COST_FILENAME
 from ..text_utils import modality_display_name
 from .html_report import (
     build_html_report,
@@ -154,7 +165,7 @@ def _relapse_comparison_table(metrics: Dict[str, Any]) -> pd.DataFrame:
 
 
 def _cost_summary_table(cost_json: Dict[str, Any]) -> pd.DataFrame:
-    cumulative = cost_json.get("cumulative", cost_json) if isinstance(cost_json, dict) else {}
+    cumulative = extract_actual_cumulative(cost_json)
     if not cumulative:
         return pd.DataFrame()
     return pd.DataFrame([{
@@ -168,6 +179,87 @@ def _cost_summary_table(cost_json: Dict[str, Any]) -> pd.DataFrame:
         "estimated_cost_usd": cumulative.get("estimated_cost_usd"),
         "estimated_cache_savings_usd": cumulative.get("estimated_cache_savings_usd"),
     }])
+
+
+def _load_pipeline_actual_cost(root_out_dir: str, config_dirs: List[Tuple[str, str, str]]) -> Dict[str, Any]:
+    pipeline_report = _read_json(os.path.join(root_out_dir, PIPELINE_COST_FILENAME))
+    actual = extract_actual_cumulative(pipeline_report)
+    if actual.get("calls"):
+        return actual
+    merged: Dict[str, Any] = {}
+    for _, _, config_dir in config_dirs:
+        block = extract_actual_cumulative(_read_json(os.path.join(config_dir, CONFIG_COST_FILENAME)))
+        if not block:
+            continue
+        if not merged:
+            merged = dict(block)
+            continue
+        for key in ("calls", "prompt_tokens", "cached_tokens", "uncached_prompt_tokens",
+                    "completion_tokens", "reasoning_tokens", "total_tokens"):
+            merged[key] = int(merged.get(key, 0)) + int(block.get(key, 0))
+        for key in ("estimated_cost_usd", "estimated_cache_savings_usd"):
+            merged[key] = float(merged.get(key, 0.0)) + float(block.get(key, 0.0))
+    return merged
+
+
+def _build_cost_comparison_section(
+    root_out_dir: str,
+    config_dirs: List[Tuple[str, str, str]],
+) -> Optional[str]:
+    run_config_payloads = [_read_json(os.path.join(config_dir, "run_config.json")) for _, _, config_dir in config_dirs]
+    apriori_raw = aggregate_apriori_from_run_configs(run_config_payloads)
+    actual_raw = _load_pipeline_actual_cost(root_out_dir, config_dirs)
+    apriori_norm = normalize_apriori_estimate(apriori_raw, flavor=APPROACH1_APRIORI)
+    actual_norm = actual_raw
+    if not apriori_norm and not actual_norm:
+        return None
+
+    config_rows: List[Tuple[str, Dict[str, Any], Dict[str, Any]]] = []
+    for shotset, modality, config_dir in config_dirs:
+        run_cfg = _read_json(os.path.join(config_dir, "run_config.json"))
+        cost_json = _read_json(os.path.join(config_dir, CONFIG_COST_FILENAME))
+        label = f"{shotset} / {modality_display_name(modality)}"
+        config_rows.append((label, run_cfg.get("apriori_cost", {}), cost_json))
+
+    per_config_df = build_per_config_cost_comparison_df(config_rows, flavor=APPROACH1_APRIORI)
+    plot_paths = generate_cost_comparison_plots(
+        root_out_dir,
+        apriori_norm,
+        actual_norm,
+        per_config_df=per_config_df if len(per_config_df) > 1 else None,
+    )
+
+    parts: List[str] = [
+        html_paragraph(
+            "Before any API calls, the pipeline estimates token usage and USD cost from rendered prompts "
+            "and the configured completion-token cap per call. After the run, cumulative usage is taken "
+            "from API billing metadata. A-priori completion tokens are an upper bound; actual completion "
+            "is usually lower, so actual cost often falls below the cache-aware estimate."
+        ),
+        df_to_html_table(
+            build_cost_comparison_summary_df(apriori_norm, actual_norm),
+            max_rows=20,
+            float_digits=4,
+        ),
+    ]
+    if len(per_config_df):
+        parts.extend([
+            "<h4>Per-configuration breakdown</h4>",
+            html_paragraph(
+                "Each row is one shot-set and modality tier. Compare planned calls and token caps to "
+                "post-run cumulative usage for that configuration folder."
+            ),
+            df_to_html_table(per_config_df, max_rows=30, float_digits=4),
+        ])
+    for plot_path in plot_paths:
+        parts.append(
+            html_plot_block(
+                plot_path,
+                _relative_path(root_out_dir, plot_path),
+                title=os.path.basename(plot_path).replace("_", " ").replace(".png", ""),
+            )
+        )
+    return html_section("Cost estimate vs actual", parts, section_id="cost-comparison")
 
 
 def _build_config_section(
@@ -304,7 +396,11 @@ def build_approach1_results_html(root_out_dir: str, *, out_path: Optional[str] =
         "as few-shot training exemplars."
     )
 
-    toc_items = ['<li><a href="#overview">Overview</a></li>', '<li><a href="#aggregate">Aggregate summary</a></li>']
+    toc_items = ['<li><a href="#overview">Overview</a></li>']
+    cost_section = _build_cost_comparison_section(root_out_dir, config_dirs)
+    if cost_section:
+        toc_items.append('<li><a href="#cost-comparison">Cost estimate vs actual</a></li>')
+    toc_items.append('<li><a href="#aggregate">Aggregate summary</a></li>')
     for shotset, modality, _ in config_dirs:
         anchor = f"{shotset}__{modality}".replace(" ", "_")
         label = f"{shotset} / {modality_display_name(modality)}"
@@ -332,6 +428,9 @@ def build_approach1_results_html(root_out_dir: str, *, out_path: Optional[str] =
             section_id="overview",
         ),
     ]
+
+    if cost_section:
+        sections.append(cost_section)
 
     agg_csv = os.path.join(root_out_dir, "all_tiers_metrics_summary.csv")
     if os.path.isfile(agg_csv):

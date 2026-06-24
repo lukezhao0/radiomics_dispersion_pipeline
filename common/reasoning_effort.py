@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-DEFAULT_REASONING_EFFORT = "minimal"
+DEFAULT_REASONING_EFFORT = "medium"
 REASONING_EFFORT_CHOICES = ("minimal", "low", "medium", "high", "none")
 _SUPPORTED_PAYLOAD_VALUES = frozenset({"minimal", "low", "medium", "high"})
 

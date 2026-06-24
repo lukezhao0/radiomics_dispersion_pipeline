@@ -106,6 +106,13 @@ from approach2.text_utils import (
 )
 
 from approach2.eval_data import _mri_missing_row_indices, _raw_df_with_row_index
+from common.cost_comparison import (
+    APPROACH2_APRIORI,
+    build_cost_comparison_summary_df,
+    extract_actual_cumulative,
+    generate_cost_comparison_plots,
+    normalize_apriori_estimate,
+)
 from approach2.evaluation.plots import (
     _metric_bar_figure_size,
     _metric_plot_label,
@@ -325,6 +332,54 @@ def _load_run_metadata(out_dir: str) -> Dict[str, Any]:
     meta["split_errors_df"] = _safe_read_csv_if_exists(os.path.join(out_dir, "nested_outer_split_errors.csv"))
     meta["split_summary_df"] = _load_outer_split_summaries(out_dir)
     return meta
+
+
+def _build_cost_comparison_report_parts(
+    out_dir: str,
+    cost_apriori: Optional[Dict[str, Any]],
+    cost_post_run: Optional[Dict[str, Any]],
+) -> Tuple[List[str], List[str]]:
+    """Return (markdown_lines, html_parts) for estimate-vs-actual cost comparison."""
+    apriori_norm = normalize_apriori_estimate(cost_apriori, flavor=APPROACH2_APRIORI)
+    actual_norm = extract_actual_cumulative(cost_post_run)
+    if not apriori_norm:
+        return [], []
+    if not actual_norm:
+        return [], []
+
+    comparison_df = build_cost_comparison_summary_df(apriori_norm, actual_norm)
+    plot_paths = generate_cost_comparison_plots(out_dir, apriori_norm, actual_norm)
+
+    md_lines = ["## Cost estimate vs actual\n"]
+    md_lines.append(
+        "A-priori estimates use rendered extraction prompts and the configured completion-token cap. "
+        "Post-run actuals come from cumulative API usage metadata.\n"
+    )
+    md_lines.append(_df_to_markdown(comparison_df, max_rows=20))
+    md_lines.append("\n")
+    for plot_path in plot_paths:
+        md_lines.append(f"- `{os.path.relpath(plot_path, out_dir)}`")
+    md_lines.append("")
+
+    html_parts: List[str] = [
+        html_paragraph(
+            "Before LLM extraction calls, the pipeline estimates token usage and USD cost from the exact "
+            "prompts that will be sent plus the configured max completion tokens per call. After the run, "
+            "cumulative usage is taken from API billing metadata. Completion tokens in the estimate are an "
+            "upper bound; actual completion is typically lower, so actual cost often falls below the "
+            "cache-aware estimate."
+        ),
+        df_to_html_table(comparison_df, max_rows=20, float_digits=4),
+    ]
+    for plot_path in plot_paths:
+        html_parts.append(
+            html_plot_block(
+                plot_path,
+                os.path.relpath(plot_path, out_dir),
+                title=os.path.basename(plot_path).replace("_", " ").replace(".png", ""),
+            )
+        )
+    return md_lines, html_parts
 
 
 def _summarize_label_distributions(pred_case_df: pd.DataFrame) -> pd.DataFrame:
@@ -1113,12 +1168,19 @@ def generate_results_report(
         lines.append("## Run overview\n")
         lines.append("```text\n" + run_metadata["nested_summary_text"] + "\n```\n")
     cost_post = run_metadata.get("cost_post_run") or {}
-    if cost_post:
+    cost_apriori = run_metadata.get("cost_apriori") or {}
+    cost_md_lines, cost_html_parts = _build_cost_comparison_report_parts(out_dir, cost_apriori, cost_post)
+    if cost_md_lines:
+        lines.extend(cost_md_lines)
+    elif cost_post:
+        actual = extract_actual_cumulative(cost_post)
         lines.append("## Token cost summary\n")
         lines.append(_df_to_markdown(pd.DataFrame([{
-            "total_input_tokens": cost_post.get("total_input_tokens"),
-            "total_output_tokens": cost_post.get("total_output_tokens"),
-            "estimated_total_cost_usd": cost_post.get("estimated_total_cost_usd"),
+            "api_calls": actual.get("calls"),
+            "prompt_tokens": actual.get("prompt_tokens"),
+            "completion_tokens": actual.get("completion_tokens"),
+            "total_tokens": actual.get("total_tokens"),
+            "estimated_cost_usd": actual.get("estimated_cost_usd"),
             "cost_type": cost_post.get("cost_type"),
         }]), max_rows=5))
 
@@ -1241,12 +1303,18 @@ def generate_results_report(
     html_sections = []
     if run_metadata.get("nested_summary_text"):
         html_sections.append(html_section("Run overview", [html_paragraph(run_metadata["nested_summary_text"])]))
-    if cost_post:
+    if cost_html_parts:
+        html_sections.append(html_section("Cost estimate vs actual", cost_html_parts))
+    elif cost_post:
+        actual = extract_actual_cumulative(cost_post)
         html_sections.append(html_section("Token cost summary", [
             df_to_html_table(pd.DataFrame([{
-                "total_input_tokens": cost_post.get("total_input_tokens"),
-                "total_output_tokens": cost_post.get("total_output_tokens"),
-                "estimated_total_cost_usd": cost_post.get("estimated_total_cost_usd"),
+                "api_calls": actual.get("calls"),
+                "prompt_tokens": actual.get("prompt_tokens"),
+                "cached_tokens": actual.get("cached_tokens"),
+                "completion_tokens": actual.get("completion_tokens"),
+                "total_tokens": actual.get("total_tokens"),
+                "estimated_cost_usd": actual.get("estimated_cost_usd"),
                 "cost_type": cost_post.get("cost_type"),
             }]), max_rows=5),
         ]))

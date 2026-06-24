@@ -4,11 +4,13 @@
 Usage:
 python pipeline/approach1.py \
     --csv-path /Users/lukezhao/projects/onc/data/PROCESSED_TRIMMED_path_cases_MRI_status.csv \
-    --outdir /Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach1_pipeline
+    --outdir /Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach1_pipeline_062426
 
 python pipeline/approach1.py \
     --csv-path /Users/lukezhao/projects/onc/data/PROCESSED_TRIMMED_path_cases_MRI_status.csv \
-    --outdir /Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach1_pipeline
+    --outdir /Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach1_pipeline_062426 \
+    --model gpt-5-nano \
+    --reasoning-effort low
 
 """
 

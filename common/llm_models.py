@@ -71,3 +71,42 @@ def resolve_api_key(
             "Set it in your .env file or export it in the environment."
         )
     return str(api_key).strip()
+
+
+def resolve_env_path(
+    *,
+    env_path: Optional[str] = None,
+    default: str = "/Users/lukezhao/projects/onc/.env",
+) -> str:
+    """Resolve the .env file path used by both pipeline CLIs."""
+    if env_path:
+        return env_path
+    return (
+        os.getenv("SANDBOX_ENV_PATH")
+        or os.getenv("ENV_PATH")
+        or default
+    )
+
+
+def load_model_env(
+    model: str,
+    *,
+    env_path: Optional[str] = None,
+    default_env_path: str = "/Users/lukezhao/projects/onc/.env",
+) -> tuple[ModelConfig, str]:
+    """Normalize model selection, load .env, and return config + resolved API key."""
+    cfg = get_model_config(model)
+    resolved_env_path = resolve_env_path(env_path=env_path, default=default_env_path)
+    if resolved_env_path and os.path.exists(resolved_env_path):
+        from dotenv import load_dotenv
+
+        load_dotenv(resolved_env_path, override=True)
+    else:
+        from dotenv import load_dotenv
+
+        load_dotenv(os.path.join(os.getcwd(), ".env"), override=True)
+    api_key = resolve_api_key(
+        cfg.deployment,
+        env_path=resolved_env_path if resolved_env_path and os.path.exists(resolved_env_path) else None,
+    )
+    return cfg, api_key

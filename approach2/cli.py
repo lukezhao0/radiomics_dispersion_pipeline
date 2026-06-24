@@ -226,7 +226,7 @@ def main() -> None:
         type=str,
         default=DEFAULT_REASONING_EFFORT,
         choices=list(REASONING_EFFORT_CHOICES),
-        help="GPT-5 reasoning effort sent to the API (default: minimal; use 'none' to omit).",
+        help="GPT-5 reasoning effort sent to the API (default: medium; use 'none' to omit).",
     )
     parser.add_argument("--outer-scheme", type=str, default="repeated_mc", choices=["repeated_mc", "stratified_kfold"], help="Outer resampling design.")
     parser.add_argument("--outer-repeats", type=int, default=5, help="Number of repeated 80/20 Monte Carlo outer splits when --outer-scheme repeated_mc.")

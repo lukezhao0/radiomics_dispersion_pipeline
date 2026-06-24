@@ -5,9 +5,14 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from common.llm_models import DEFAULT_MODEL, get_model_config, resolve_api_key
+from common.llm_models import (
+    DEFAULT_MODEL,
+    get_model_config,
+    load_model_env,
+    normalize_model_name,
+    resolve_env_path,
+)
 from common.reasoning_effort import DEFAULT_REASONING_EFFORT, normalize_reasoning_effort
-from dotenv import load_dotenv
 
 CSV_PATH = "/Users/lukezhao/projects/onc/PROCESSED_TRIMMED_path_cases_MRI_status.csv"
 
@@ -28,7 +33,7 @@ DEFAULT_REPORT_MODE = "mri"
 
 # Prefer the project-level .env used by the Stanford AI Sandbox example, but
 # fall back to the current working directory so the script remains portable.
-ENV_PATH = os.getenv("SANDBOX_ENV_PATH", "/Users/lukezhao/projects/onc/.env")
+ENV_PATH = os.getenv("SANDBOX_ENV_PATH") or os.getenv("ENV_PATH") or "/Users/lukezhao/projects/onc/.env"
 
 API_VERSION = "2024-12-01-preview"
 MODEL = DEFAULT_MODEL
@@ -84,6 +89,7 @@ def configure_llm(
     if reasoning_effort is not None:
         set_reasoning_effort(reasoning_effort)
 
+    model = normalize_model_name(model)
     cfg = get_model_config(model)
     MODEL = cfg.deployment
     DEPLOYMENT = cfg.deployment
@@ -92,13 +98,8 @@ def configure_llm(
     PRICE_PER_1M_OUTPUT_TOKENS = cfg.price_per_1m_output_tokens
     PRICING_LABEL = cfg.pricing_label
 
-    resolved_env_path = env_path or ENV_PATH
-    if resolved_env_path and os.path.exists(resolved_env_path):
-        load_dotenv(resolved_env_path, override=True)
-    else:
-        load_dotenv(os.path.join(os.getcwd(), ".env"), override=True)
-
-    API_KEY = resolve_api_key(model, env_path=resolved_env_path if resolved_env_path and os.path.exists(resolved_env_path) else None)
+    resolved_env_path = resolve_env_path(env_path=env_path or ENV_PATH, default=ENV_PATH)
+    _, API_KEY = load_model_env(model, env_path=resolved_env_path, default_env_path=ENV_PATH)
     URL = _build_url(DEPLOYMENT)
     HEADERS = {
         # This endpoint works with `api-key`, not Ocp-Apim-Subscription-Key.

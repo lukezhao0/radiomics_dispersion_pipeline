@@ -7,9 +7,8 @@ import time
 from typing import Dict, Optional
 
 import requests
-from dotenv import load_dotenv
 
-from common.llm_models import get_model_config, resolve_api_key
+from common.llm_models import get_model_config, load_model_env
 
 from .. import config
 from ..prompts.system import SYSTEM_MSG
@@ -34,17 +33,17 @@ class SecureGPTClient:
         api_version: str,
         cost_tracker: Optional[CostTracker] = None,
     ) -> None:
-        self.deployment = deployment
+        cfg = get_model_config(deployment)
+        self.deployment = cfg.deployment
         self.api_version = api_version
         self.cost_tracker = cost_tracker or CostTracker()
+        self.api_key_env_var = cfg.api_key_env_var
 
-        load_dotenv(env_path, override=True)
-        cfg = get_model_config(deployment)
-        api_key = resolve_api_key(deployment, env_path=env_path)
+        _, api_key = load_model_env(cfg.deployment, env_path=env_path)
 
         self.url = (
             config.SECUREGPT_BASE_URL
-            + f"/deployments/{deployment}/chat/completions"
+            + f"/deployments/{self.deployment}/chat/completions"
             + f"?api-version={api_version}"
         )
         self.headers = {
@@ -53,8 +52,7 @@ class SecureGPTClient:
             "Accept": "application/json",
         }
 
-        config.apply_model_config(deployment)
-        config.DEPLOYMENT = deployment
+        config.apply_model_config(self.deployment)
         config.API_VERSION = api_version
         self.model_label = cfg.pricing_label
 

@@ -89,7 +89,7 @@ if __name__ == "__main__":
         dest="reasoning_effort",
         default=DEFAULT_REASONING_EFFORT,
         choices=list(REASONING_EFFORT_CHOICES),
-        help="GPT-5 reasoning effort sent to the API (default: minimal; use 'none' to omit).",
+        help="GPT-5 reasoning effort sent to the API (default: medium; use 'none' to omit).",
     )
     parser.add_argument(
         "--csv-path",

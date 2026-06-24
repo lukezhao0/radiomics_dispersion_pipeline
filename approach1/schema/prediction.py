@@ -4,16 +4,94 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..config import DISPERSION_HIGH_THRESHOLD
-from ..text_utils import word_count
+from .quote_helpers import (
+    _quote_present_in_report,
+    _repair_quote_to_exact_report_span,
+    _word_count,
+)
+
+KEY_EVIDENCE_MAX_WORDS = 35
+
+
+def _sanitize_key_evidence_quote(
+    quote: Any,
+    report_text: str,
+    item_name: str,
+) -> Tuple[Optional[str], List[str], int]:
+    """Normalize, repair, or drop one key_evidence quote before hard validation."""
+    warnings: List[str] = []
+    repaired = 0
+
+    if not isinstance(quote, str):
+        return None, [f"{item_name} dropped: quote is not a string"], repaired
+
+    quote = quote.strip()
+    if not quote:
+        return None, [f"{item_name} dropped: empty quote"], repaired
+
+    if _word_count(quote) > KEY_EVIDENCE_MAX_WORDS or not _quote_present_in_report(quote, report_text):
+        repaired_quote, similarity, overlap = _repair_quote_to_exact_report_span(quote, report_text)
+        if repaired_quote and _word_count(repaired_quote) <= KEY_EVIDENCE_MAX_WORDS:
+            repaired = 1
+            warnings.append(
+                f"{item_name} repaired to exact report substring "
+                f"(similarity={similarity:.3f}, token_overlap={overlap:.3f})"
+            )
+            return repaired_quote, warnings, repaired
+        return None, [
+            f"{item_name} dropped: quote not found and could not be repaired; "
+            f"best_similarity={similarity:.3f}, best_token_overlap={overlap:.3f}; "
+            f"quote={quote[:160]!r}"
+        ], repaired
+
+    return quote, warnings, repaired
+
+
+def sanitize_prediction_obj_for_validation(
+    obj: Dict[str, Any],
+    report_text: str,
+) -> Dict[str, Any]:
+    """Repair/drop invalid key_evidence quotes before strict object validation."""
+    obj = dict(obj)
+    validation_warnings: List[str] = []
+    n_repaired = 0
+    n_dropped = 0
+
+    raw_items = obj.get("key_evidence", [])
+    if not isinstance(raw_items, list):
+        validation_warnings.append("key_evidence was not a list; replacing with empty list")
+        obj["key_evidence"] = []
+    else:
+        cleaned: List[str] = []
+        for i, quote in enumerate(raw_items):
+            cleaned_quote, warnings, repaired = _sanitize_key_evidence_quote(
+                quote=quote,
+                report_text=report_text,
+                item_name=f"key_evidence[{i}]",
+            )
+            validation_warnings.extend(warnings)
+            n_repaired += repaired
+            if cleaned_quote is None:
+                n_dropped += 1
+            else:
+                cleaned.append(cleaned_quote)
+        obj["key_evidence"] = cleaned
+
+    obj["validation_warnings"] = validation_warnings
+    obj["n_validation_warnings"] = len(validation_warnings)
+    obj["n_repaired_key_evidence_quotes"] = n_repaired
+    obj["n_dropped_key_evidence_quotes"] = n_dropped
+    return obj
 
 
 def validate_prediction_obj(
     obj: Dict[str, Any],
     expected_case_id: str,
     expected_token: str,
+    report_text: Optional[str] = None,
 ) -> Tuple[bool, str]:
     required = [
         "dispersion_score_pred",
@@ -63,8 +141,10 @@ def validate_prediction_obj(
             return False, f"key_evidence[{i}] must be a string"
         if not q.strip():
             return False, f"key_evidence[{i}] is empty"
-        if word_count(q) > 25:
-            return False, f"key_evidence[{i}] exceeds 25 words"
+        if _word_count(q) > KEY_EVIDENCE_MAX_WORDS:
+            return False, f"key_evidence[{i}] exceeds {KEY_EVIDENCE_MAX_WORDS} words"
+        if report_text and not _quote_present_in_report(q, report_text):
+            return False, f"key_evidence[{i}] is not found in report text"
 
     returned_token = obj["retrieval_check_token_returned"]
     if not isinstance(returned_token, str) or not returned_token.strip():

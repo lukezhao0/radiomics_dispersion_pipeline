@@ -21,6 +21,15 @@ def exemplar_dispersion_band(row_index: int, high_rows: Set[int]) -> str:
     return "high dispersion" if row_index in high_rows else "low dispersion"
 
 
+def report_text_for_validation(c: Case, modality: str) -> str:
+    parts: List[str] = []
+    if modality in {"mri_only", "mri_plus_pathology"}:
+        parts.append(c.preop_mri)
+    if modality in {"pathology_only", "mri_plus_pathology"}:
+        parts.append(c.path_report)
+    return "\n\n".join(parts)
+
+
 def report_fields_for_prompt(c: Case, modality: str) -> str:
     parts: List[str] = []
     if modality in {"mri_only", "mri_plus_pathology"}:
@@ -97,7 +106,7 @@ Predict ONLY:
    - high dispersion (1) if dispersion_score_pred >= 85
    - low dispersion  (0) if dispersion_score_pred < 85
 3) relapse_pred: 0 or 1 (1=relapsing, 0=non-relapsing)
-4) key_evidence: up to 6 short quotes (<=25 words each) copied VERBATIM from the provided reports that most support your predictions
+4) key_evidence: up to 6 short quotes copied VERBATIM from the provided reports that most support your predictions. Keep each quote <= 25 words when possible and never >35 words.
 5) retrieval_check_token_returned: echo exactly the single validation token provided at the very end of the case prompt
 6) retrieval_check_correct: boolean indicating whether the returned token exactly matches the validation token
 7) reasoning_summary: one paragraph summarizing the evidence-based rationale grounded only in the reports provided for this tier
@@ -109,7 +118,7 @@ STRICT RULES
 - Do not invent measurements or findings.
 - dispersion_high_low_pred MUST be consistent with dispersion_score_pred using the cutoff 85 (>= 85 = high/1; < 85 = low/0).
 - For BOTH the labeled FEW-SHOT TRAINING EXAMPLES and the NEW CASE, ALWAYS focus on the breast side indicated by index_side ("left" or "right"). If reports mention both breasts, ignore findings that clearly correspond to the opposite, non-index side.
-- key_evidence quotes MUST be copied exactly from the provided report text and must each be <=25 words.
+- key_evidence quotes MUST be copied exactly from the provided report text. Keep each quote <= 25 words when possible and never >35 words.
 - reasoning_summary and structured_rationale must be concise, auditable, and grounded in the report; do NOT provide hidden chain-of-thought or mention internal deliberation.
 - Output must be valid JSON ONLY (no extra text).
 

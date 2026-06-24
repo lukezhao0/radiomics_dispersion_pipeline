@@ -1,0 +1,265 @@
+"""
+SecureGPT few-shot dispersion/relapse prediction pipeline.
+
+Modular package extracted from the original monolithic approach1.py script.
+"""
+
+from __future__ import annotations
+
+from .api import (
+    API_KEY,
+    COST_TRACKER,
+    HEADERS,
+    URL,
+    call_securegpt_chat,
+    configure_api,
+    confirm_before_full_run,
+    estimate_apriori_pipeline_cost,
+    estimate_cost_from_usage,
+    load_cost_tracker_snapshot,
+    merge_cost_trackers,
+    preflight_check,
+    print_apriori_cost_report,
+    print_cumulative_report,
+    reset_cost_tracker,
+    summarize_apriori_costs,
+    update_cost_tracker,
+)
+from .api import save_cumulative_report_json_shim as save_cumulative_report_json
+from .checkpoint.fingerprint import build_config_fingerprint, config_fingerprints_compatible
+from .checkpoint.predictions import (
+    append_prediction_jsonl,
+    load_existing_case_predictions,
+    load_predictions_from_csv,
+    load_predictions_from_jsonl,
+    predictions_dict_to_dataframe,
+    write_predictions_csv,
+    write_predictions_jsonl,
+)
+from .checkpoint.resume import (
+    config_completed_marker_path as _config_completed_marker_path,
+)
+from .checkpoint.resume import (
+    config_resume_dir as _config_resume_dir,
+)
+from .checkpoint.resume import (
+    is_config_checkpoint_complete,
+    load_completed_config_checkpoint,
+    print_resume_plan,
+    save_completed_config_checkpoint,
+    summarize_resume_plan,
+)
+from .config import (
+    API_VERSION,
+    BACKOFF_BASE_S,
+    CSV_PATH,
+    DEPLOYMENT,
+    DISPERSION_HIGH_THRESHOLD,
+    ENV_PATH,
+    MAX_RETRIES,
+    MAX_TOKENS,
+    MODALITY_TIERS,
+    OUT_DIR,
+    PRICE_PER_1M_CACHED_INPUT_TOKENS,
+    PRICE_PER_1M_INPUT_TOKENS,
+    PRICE_PER_1M_OUTPUT_TOKENS,
+    RATE_LIMIT_SLEEP_S,
+    REASONING_EFFORT,
+    REQUEST_TIMEOUT_S,
+    RESUME_CHECKPOINT_SUBDIR,
+    RESUME_SCRIPT_VERSION,
+    SECUREGPT_BASE_URL,
+    SHOT_SETS,
+    STOPWORDS,
+    __version__,
+)
+from .data import load_cases, make_case_from_row
+from .evaluation.evidence import (
+    build_evidence_feature_table,
+    evidence_attribution_report,
+    extract_ngram_features,
+)
+from .evaluation.metrics import (
+    coerce_int01,
+    coerce_numeric,
+    compare_relapse_predictors,
+    evaluate_dispersion,
+    evaluate_dispersion_high_low,
+    evaluate_needle_retrieval,
+    evaluate_relapse_labels,
+    missingness_summary,
+    prepare_predictions_for_eval,
+)
+from .evaluation.plots import (
+    plot_dispersion_residuals,
+    plot_dispersion_scatter,
+    plot_label_confusion_matrix,
+    plot_needle_retrieval_rates,
+    plot_pred_dispersion_by_relapse,
+    plot_relapse_predictor_comparison,
+    plot_top_evidence_features,
+)
+from .evaluation.runner import evaluate_and_plot, explanation_text
+from .inference import predict_case
+from .io_atomic import atomic_write_json as _atomic_write_json
+from .io_atomic import atomic_write_text as _atomic_write_text
+from .io_atomic import json_safe as _json_safe
+from .logging_setup import Tee
+from .models import Case, RunConfig
+from .orchestration import run_one_config, save_aggregate_summary
+from .prompts import DESCRIPTORS_TEXT, SYSTEM_MSG, build_training_block, build_user_prompt
+from .prompts.tokens import case_id_for_token as _case_id_for_token
+from .prompts.tokens import make_case_token as _make_case_token
+from .schema.prediction import extract_json_from_text as _extract_json_from_text
+from .schema.prediction import validate_prediction_obj as _validate_prediction_obj
+from .schema.records import (
+    build_pred_record,
+    normalize_pred_record as _normalize_pred_record,
+    parse_jsonish_dict as _parse_jsonish_dict,
+    parse_jsonish_list,
+    validate_saved_pred_record,
+)
+from .splits import (
+    build_run_configs,
+    empty_predictions_df,
+    validate_shot_rows,
+    validate_training_modality_availability,
+    write_run_config,
+    write_skipped_cases,
+)
+from .text_utils import (
+    has_report_text as _has_report_text,
+    modality_display_name,
+    modality_requires_mri,
+    modality_uses_pathology,
+    normalize_text,
+    normalize_side as _normalize_side,
+    rmse as _rmse,
+    safe_text as _safe_text,
+    shorten_for_prompt as _shorten_for_prompt,
+    tokenize_quote,
+    word_count as _word_count,
+)
+from .api.cost import empty_cost_tracker as _empty_cost_tracker
+
+__all__ = [
+    "__version__",
+    "Case",
+    "RunConfig",
+    "Tee",
+    "CSV_PATH",
+    "OUT_DIR",
+    "ENV_PATH",
+    "API_VERSION",
+    "DEPLOYMENT",
+    "SECUREGPT_BASE_URL",
+    "MAX_TOKENS",
+    "REQUEST_TIMEOUT_S",
+    "MAX_RETRIES",
+    "BACKOFF_BASE_S",
+    "RATE_LIMIT_SLEEP_S",
+    "DISPERSION_HIGH_THRESHOLD",
+    "RESUME_CHECKPOINT_SUBDIR",
+    "RESUME_SCRIPT_VERSION",
+    "SHOT_SETS",
+    "MODALITY_TIERS",
+    "PRICE_PER_1M_INPUT_TOKENS",
+    "PRICE_PER_1M_CACHED_INPUT_TOKENS",
+    "PRICE_PER_1M_OUTPUT_TOKENS",
+    "API_KEY",
+    "URL",
+    "HEADERS",
+    "REASONING_EFFORT",
+    "COST_TRACKER",
+    "STOPWORDS",
+    "SYSTEM_MSG",
+    "DESCRIPTORS_TEXT",
+    "configure_api",
+    "reset_cost_tracker",
+    "estimate_cost_from_usage",
+    "update_cost_tracker",
+    "print_cumulative_report",
+    "merge_cost_trackers",
+    "load_cost_tracker_snapshot",
+    "save_cumulative_report_json",
+    "load_cases",
+    "make_case_from_row",
+    "build_training_block",
+    "build_user_prompt",
+    "call_securegpt_chat",
+    "preflight_check",
+    "predict_case",
+    "estimate_apriori_pipeline_cost",
+    "summarize_apriori_costs",
+    "print_apriori_cost_report",
+    "confirm_before_full_run",
+    "coerce_numeric",
+    "coerce_int01",
+    "parse_jsonish_list",
+    "prepare_predictions_for_eval",
+    "missingness_summary",
+    "evaluate_dispersion",
+    "evaluate_dispersion_high_low",
+    "evaluate_relapse_labels",
+    "compare_relapse_predictors",
+    "evaluate_needle_retrieval",
+    "normalize_text",
+    "tokenize_quote",
+    "extract_ngram_features",
+    "build_evidence_feature_table",
+    "evidence_attribution_report",
+    "plot_dispersion_scatter",
+    "plot_dispersion_residuals",
+    "plot_label_confusion_matrix",
+    "plot_pred_dispersion_by_relapse",
+    "plot_relapse_predictor_comparison",
+    "plot_needle_retrieval_rates",
+    "plot_top_evidence_features",
+    "explanation_text",
+    "evaluate_and_plot",
+    "validate_shot_rows",
+    "validate_training_modality_availability",
+    "build_run_configs",
+    "write_run_config",
+    "write_skipped_cases",
+    "empty_predictions_df",
+    "build_config_fingerprint",
+    "config_fingerprints_compatible",
+    "build_pred_record",
+    "validate_saved_pred_record",
+    "load_predictions_from_jsonl",
+    "load_predictions_from_csv",
+    "load_existing_case_predictions",
+    "predictions_dict_to_dataframe",
+    "write_predictions_jsonl",
+    "append_prediction_jsonl",
+    "write_predictions_csv",
+    "is_config_checkpoint_complete",
+    "save_completed_config_checkpoint",
+    "load_completed_config_checkpoint",
+    "summarize_resume_plan",
+    "print_resume_plan",
+    "run_one_config",
+    "save_aggregate_summary",
+    "modality_display_name",
+    "modality_requires_mri",
+    "modality_uses_pathology",
+    "_safe_text",
+    "_has_report_text",
+    "_shorten_for_prompt",
+    "_word_count",
+    "_normalize_side",
+    "_rmse",
+    "_case_id_for_token",
+    "_make_case_token",
+    "_validate_prediction_obj",
+    "_extract_json_from_text",
+    "_atomic_write_json",
+    "_atomic_write_text",
+    "_empty_cost_tracker",
+    "_json_safe",
+    "_parse_jsonish_dict",
+    "_normalize_pred_record",
+    "_config_resume_dir",
+    "_config_completed_marker_path",
+]

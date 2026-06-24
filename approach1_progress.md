@@ -88,3 +88,173 @@ The following core behavior remains unchanged:
 ## Practical effect
 
 The updated script should now run against the newer SHC Azure GPT-5-nano API endpoint, estimate cost before execution, track actual token/cost usage after each call, report cached-token savings, and use a cleaner validation-token design that avoids distributing sentinel tokens throughout the clinical prompt.
+
+---
+
+## Appendix: Modular refactor (2026-23-06)
+
+The monolithic `approach1.py` (~2,500 lines) was split into the `approach1/` Python package. **Scientific behavior is unchanged**: same prompts, thresholds, shot sets, train/test splits, output filenames, metrics, and resume/checkpoint semantics. The refactor is structural only.
+
+### What changed
+
+| Area             | Before                                              | After                                                                |
+| ---------------- | --------------------------------------------------- | -------------------------------------------------------------------- |
+| Entry point      | Single `approach1.py` file                          | `approach1.py` (thin CLI) + `approach1/cli.py`                       |
+| Implementation   | All logic in one file                               | Modular package (see layout below)                                   |
+| API / cost state | Module-level globals (`API_KEY`, `COST_TRACKER`, …) | `SecureGPTClient` + `CostTracker` classes with backward-compat shims |
+| Tests            | None in `pipeline/`                                 | `tests/approach1/` (16 unit tests)                                   |
+| Dependencies     | Implicit                                            | `pyproject.toml` with pinned ranges                                  |
+
+### Package layout
+
+```
+pipeline/
+├── approach1.py              # CLI: python approach1.py ...
+├── approach1/
+│   ├── config.py             # Constants, SHOT_SETS, modality tiers
+│   ├── models.py             # Case, RunConfig dataclasses
+│   ├── data.py               # CSV loading
+│   ├── splits.py             # Train/test partition, build_run_configs
+│   ├── prompts/              # system.py, descriptors.py, templates.py, tokens.py
+│   ├── schema/               # LLM output validation, prediction records
+│   ├── api/                  # SecureGPTClient, CostTracker, cost estimation
+│   ├── inference.py          # predict_case (retry + validation)
+│   ├── checkpoint/           # Resume, fingerprints, JSONL/CSV I/O
+│   ├── evaluation/           # Metrics, evidence attribution, plots
+│   ├── orchestration.py      # run_one_config loop
+│   └── cli.py                # argparse + main()
+├── tests/approach1/
+└── pyproject.toml
+```
+
+### What was preserved
+
+- Few-shot held-out evaluation (not k-fold CV): 2 high + 2 low training rows per shot set; all other rows are test.
+- Three modality tiers: `mri_only`, `pathology_only`, `mri_plus_pathology`.
+- Default shot sets: `[0,2]` + `[101,102]` and `[0,19]` + `[82,85]`.
+- Dispersion high/low cutoff at 85.
+- Per-case JSONL checkpoints and per-config `COMPLETED.json` resume markers.
+- All evaluation metrics, plots, and output artifact names.
+
+### Deferred (not yet implemented)
+
+These were intentionally skipped to avoid silent behavior changes:
+
+- `PROMPT_VERSION` / prompt-hash in checkpoint fingerprints
+- PHI-safe log redaction (case IDs and API error bodies still appear in `run.log`)
+- Consolidating the duplicate copy at `sabcs/approach1-3.py`
+
+---
+
+## Future usage guide
+
+### Quick start (CLI)
+
+```bash
+cd pipeline
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+python approach1.py \
+  --csv-path /path/to/PROCESSED_TRIMMED_path_cases_MRI_status.csv \
+  --outdir ./securegpt_dispersion_outputs \
+  --env-path /path/to/.env \
+  -y
+```
+
+Common flags:
+
+| Flag                          | Purpose                                                |
+| ----------------------------- | ------------------------------------------------------ |
+| `-y` / `--yes`                | Skip interactive cost confirmation                     |
+| `--skip-preflight`            | Skip initial API connectivity test                     |
+| `--no-resume`                 | Ignore existing checkpoints; start fresh               |
+| `--force-rerun-cases`         | Re-call API for all test cases (even if JSONL exists)  |
+| `--no-skip-completed-configs` | Re-evaluate configs even when `COMPLETED.json` matches |
+
+### Environment
+
+- `.env` must contain `SANDBOX_API_KEY` (see `pipeline/.gitignore`; never commit secrets).
+- Optional: `ENV_PATH` env var overrides default `.env` location.
+- Optional: `REASONING_EFFORT` env var (currently unused in payload; reserved).
+
+### Programmatic imports
+
+The full original API is available via the package:
+
+```python
+from approach1 import (
+    Case,
+    RunConfig,
+    load_cases,
+    build_run_configs,
+    build_user_prompt,
+    predict_case,
+    evaluate_and_plot,
+    run_one_config,
+)
+```
+
+For targeted edits, import from submodules directly (preferred for agents and unit tests):
+
+```python
+from approach1.prompts.templates import build_user_prompt
+from approach1.schema.prediction import validate_prediction_obj
+from approach1.splits import build_run_configs
+```
+
+### Output directory structure
+
+```
+<outdir>/
+├── run.log
+├── all_tiers_metrics_summary.csv
+└── <shotset_name>/
+    └── <modality>/
+        ├── run_config.json
+        ├── predictions_testing_cases.jsonl
+        ├── predictions_testing_cases.csv
+        ├── evaluation_metrics_summary.json
+        ├── evaluation_metrics_from_csv.txt
+        ├── token_cost_report.json
+        ├── skipped_cases_missing_mri.csv   # MRI tiers only, if applicable
+        └── _resume_checkpoint/COMPLETED.json
+```
+
+Re-run the same `--outdir` to resume interrupted work (default). Completed shotset/modality folders are skipped when the checkpoint fingerprint matches.
+
+### Running tests
+
+```bash
+cd pipeline
+source .venv/bin/activate
+pytest tests/approach1/ -v
+```
+
+Tests cover prompt determinism, schema validation, train/test leakage guards, checkpoint fingerprints, and metric computation on synthetic data. They do **not** call the live API.
+
+### Where to edit what
+
+| Task                           | Module                                                          |
+| ------------------------------ | --------------------------------------------------------------- |
+| Change shot sets or thresholds | `approach1/config.py`                                           |
+| Edit prompt text               | `approach1/prompts/system.py`, `descriptors.py`, `templates.py` |
+| Change LLM output rules        | `approach1/schema/prediction.py`                                |
+| Modify API client / retries    | `approach1/api/client.py`, `approach1/inference.py`             |
+| Adjust metrics or plots        | `approach1/evaluation/metrics.py`, `plots.py`, `runner.py`      |
+| Change resume behavior         | `approach1/checkpoint/`                                         |
+| Add CLI flags                  | `approach1/cli.py`                                              |
+
+**Important:** Prompt and schema changes can alter LLM outputs and invalidate existing checkpoints. After editing prompts, use `--force-rerun-cases` or a new `--outdir`. Consider bumping `RESUME_SCRIPT_VERSION` in `config.py` if fingerprint semantics change.
+
+### Regression safety
+
+Before merging scientific changes:
+
+1. Run `pytest tests/approach1/ -v`.
+2. Re-run evaluation only on a frozen prediction CSV and diff `evaluation_metrics_summary.json`.
+3. For prompt edits, compare golden prompt hashes in `tests/approach1/test_prompts_golden.py`.
+
+### Note on `sabcs/approach1-3.py`
+
+A byte-identical copy of the pre-refactor monolith may still exist under `sabcs/`. **Use `pipeline/approach1.py` or `import approach1` from the `pipeline/` directory** as the canonical entry point. The `sabcs/` copy should be updated or removed in a follow-up to avoid drift.

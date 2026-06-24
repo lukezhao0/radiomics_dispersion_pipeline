@@ -641,3 +641,129 @@ pathology_only_mri_complete_subset_metrics.csv
 - Matplotlib plot generation remains aggregate-stage only, after fold workers complete, to avoid concurrent plotting from multiple fold threads.
 - Relapse permutation testing is performed on aggregate held-out case-level predictions; it tests whether the final score/probability ranking exceeds label-shuffled performance, but it does not create new LLM extractions or retrain all models under each permutation.
 - External validation remains necessary before making clinical claims.
+
+---
+
+## 2026-06-23 — Phase-1 Modular Package Extraction (approach2/)
+
+### Summary
+
+Introduced a first-stage modular package under `pipeline/approach2/` by extracting pure, low-coupling helpers from the monolithic `approach2.py` driver. Orchestration, nested CV fitting, reporting, and the full `approach2_aux.py` extraction body remain unchanged in this pass. Scientific behavior (prompts, thresholds, splits, metrics formulas, output schemas) is preserved.
+
+### Files Modified / Added
+
+- `pipeline/approach2.py`
+  - Fixed broken import: `approach2_3_aux` → `approach2_aux`.
+  - Imports constants, models, text helpers, metric stats, and atomic I/O from the new `approach2/` package.
+  - Retains all orchestration, lexicon/rediscovery, calibration, ML fitting, reports, and CLI `main()`.
+
+- `pipeline/approach2_aux.py`
+  - Body unchanged; added note that future home is `approach2/extraction/` (phase 2).
+
+- `pipeline/approach2/` (new package)
+  - `config.py` — thresholds, ontology, `META_COLS`, pattern constants.
+  - `models.py` — `LowInfoFeatureFilter`, `ModelSpec`.
+  - `text_utils.py` — normalization, slugging, negation/uncertainty detection, parallelism defaults.
+  - `io_atomic.py` — `atomic_write_df`, `safe_read_csv_if_exists`.
+  - `metrics/stats.py` — `safe_spearman`, `safe_pearson`, `rmse`, `calibration_intercept_slope`.
+  - `__init__.py` — public re-exports.
+
+- `pipeline/pyproject.toml`
+  - Added `approach2*` to setuptools package discovery.
+
+- `pipeline/tests/approach2/` (new)
+  - Golden/smoke tests for config, text utils, metric stats, imports, and CLI `--help`.
+
+### Import Fix
+
+`approach2.py` previously imported `approach2_3_aux`, which does not exist under `pipeline/`. The import now correctly targets `approach2_aux.py`.
+
+### Intentionally Deferred (not changed in phase 1)
+
+- Full extraction of `approach2_aux.py` into `api/`, `prompts/`, `schema/`, `data/` subpackages.
+- Split/lexicon/rediscovery, feature matrices, calibration, orchestration, reports, and CLI extraction from `approach2.py`.
+- Consolidation of `_coerce_candidate_concepts` (main uses `make_slug()`; aux uses `.strip()` — different behavior, must stay separate).
+- `sabcs/approach2_3*.py` copies outside `pipeline/`.
+
+### Future Refactoring Phases
+
+1. **Phase 2** — Mirror `approach1/` for extraction/API: move `approach2_aux.py` into `approach2/api/`, `prompts/`, `schema/`, `data/`, `html_report/`; thin `approach2_aux.py` shim.
+2. **Phase 3** — Extract splits, lexicon, recoding, features, audit, calibration from `approach2.py`.
+3. **Phase 4** — Extract ML builders, evaluation metrics/plots/reports.
+4. **Phase 5** — Extract `orchestration.py` + `cli.py`; reduce `approach2.py` to a compatibility shim.
+5. **Phase 6** — Golden-fold regression tests and leakage checks.
+
+### Validation Performed
+
+```bash
+cd pipeline
+SANDBOX_API_KEY=dummy python -m py_compile approach2.py approach2_aux.py approach2/*.py
+SANDBOX_API_KEY=dummy python approach2.py --help
+pytest tests/approach2/
+```
+
+All 17 approach2 tests passed.
+
+### Notes and Caveats
+
+- Run scripts from `pipeline/` (or ensure `pipeline/` is on `PYTHONPATH`) so `approach2` package and `approach2_aux` resolve correctly.
+- Phase 1 reduces `approach2.py` by ~350 lines without altering nested evaluation logic.
+- Deeper modularization should proceed incrementally with golden tests before moving leakage-sensitive split/lexicon code.
+
+---
+
+## 2026-06-23 — Phases 2–5 Modular Package Completion
+
+### Summary
+
+Completed the remaining modularization plan: extracted `approach2_aux.py` into the `approach2` package (extraction/API/prompts/schema/HTML), split the nested evaluation driver into domain modules, and reduced both `approach2.py` and `approach2_aux.py` to thin CLI shims. Scientific behavior, prompts, thresholds, output filenames, and CLI flags are preserved.
+
+### New / Updated Package Layout
+
+```
+pipeline/approach2/
+  extraction/          # LLM extraction layer (from approach2_aux.py)
+    config.py, data.py, text_helpers.py, schema.py, pipeline.py, cli.py
+  api/                   # client.py, cost.py
+  prompts/               # extraction.py (static), builder.py (dynamic)
+  html_report.py
+  logging_setup.py
+  eval_data.py           # target frames, MRI-missing filters
+  splits.py, lexicon.py, recoding.py, audit.py, calibration.py
+  features/
+    normalize.py, matrices.py
+  models_ml.py           # model specs, fitting, teacher-student, metrics
+  evaluation/
+    plots.py             # ranking, stability, comparison plots
+  orchestration.py       # per-split / fold orchestration, checkpoints
+  reports.py             # automated reports, diagnostics, regeneration
+  cli.py                 # nested evaluation main()
+pipeline/approach2.py    # thin shim → approach2.cli.main
+pipeline/approach2_aux.py # thin shim → approach2.extraction
+```
+
+### Entry Points (unchanged usage)
+
+```bash
+cd pipeline
+SANDBOX_API_KEY=... python approach2.py --csv-path ... --out_dir ...
+SANDBOX_API_KEY=... python approach2_aux.py --csv-path ... --outdir ... --report-mode mri
+```
+
+### Intentionally Deferred (Phase 6)
+
+- Golden-fold regression tests with synthetic extraction CSV fixtures (no API).
+- Leakage tests asserting outer-test cases never influence lexicon/calibration training.
+- Checkpoint fingerprint compatibility tests for split resume.
+- Consolidation of `_coerce_candidate_concepts` between main (`make_slug`) and aux (`.strip()`).
+
+### Validation Performed
+
+```bash
+cd pipeline
+SANDBOX_API_KEY=dummy python approach2.py --help
+SANDBOX_API_KEY=dummy python approach2_aux.py --help
+pytest tests/approach2/
+```
+
+All approach2 tests passed (including new nested-import smoke tests).

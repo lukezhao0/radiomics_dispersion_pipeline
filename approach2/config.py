@@ -7,8 +7,8 @@ from typing import Any, Dict
 DISPERSION_TRUE_HIGH_THRESHOLD = 85.0
 RANDOM_SEED = 17
 # Default outer rediscovery stability threshold (selection frequency in [0, 1]).
-# 0.35 is more permissive than the legacy 0.60 default and retains more phrases.
-DEFAULT_STABILITY_THRESHOLD = 0.35
+# 0.20 retains more phrases than 0.35/0.60 while still requiring repeated rediscovery.
+DEFAULT_STABILITY_THRESHOLD = 0.20
 INNER_CV_MAX_SPLITS = 5
 COEF_ZERO_TOL = 1e-8
 EPS = 1e-12

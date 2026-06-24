@@ -79,9 +79,10 @@ flowchart TD
 
 #### Feature stability and count normalization
 
-- Stable features are selected when rediscovery frequency exceeds `--stability-threshold` (default 0.40).
+- Stable features are selected when rediscovery frequency exceeds `--stability-threshold` (default 0.20).
 - Optional cap per modality: `--target-stable-features-per-modality` ranks by train-only selection frequency (0 = no cap).
 - MRI and pathology are **not** forced to equal feature counts.
+- **Guide:** [Feature stability, selection, and ML weighting](docs/approach2_feature_stability_and_selection.md) — rediscovery, frozen encoding, and which CLI flags control feature count.
 
 #### Cost estimation
 

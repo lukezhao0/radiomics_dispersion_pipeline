@@ -209,7 +209,7 @@ def main() -> None:
     parser.add_argument("--rediscovery-repeats", type=int, default=25, help="Number of rediscovery Monte Carlo resamples when --rediscovery-scheme repeated_mc.")
     parser.add_argument("--rediscovery-test-frac", type=float, default=0.20, help="Test fraction for rediscovery Monte Carlo splits.")
     parser.add_argument("--rediscovery-folds", type=int, default=5, help="Number of folds when --rediscovery-scheme stratified_kfold.")
-    parser.add_argument("--stability-threshold", type=float, default=DEFAULT_STABILITY_THRESHOLD, help="Selection-frequency threshold used to freeze the outer-split stable lexicon (default more permissive than legacy 0.60).")
+    parser.add_argument("--stability-threshold", type=float, default=0.60, help="USE DEFAULT_STABILITY_THRESHOLD FOR 0.20, RIGHT NOW HARD CODED 0.60- Selection-frequency threshold used to freeze the outer-split stable lexicon (default 0.20).")
     parser.add_argument("--target-stable-features-per-modality", type=int, default=0, help="Cap final stable phrase features per modality to this count (0 = no cap, use all stable). Ranking uses train-only selection frequency.")
     parser.add_argument("--min-phrase-cases", type=int, default=2, help="Minimum number of training cases in a rediscovery subset required for a phrase to count as rediscovered.")
     parser.add_argument("--min-group-cases", type=int, default=2, help="Minimum number of training cases in a rediscovery subset required for a group to count as rediscovered.")

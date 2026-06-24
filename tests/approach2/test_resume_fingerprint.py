@@ -21,7 +21,7 @@ def _args(**kwargs):
         outer_test_frac=0.2,
         outer_folds=5,
         random_seed=17,
-        stability_threshold=0.35,
+        stability_threshold=0.20,
         target_stable_features_per_modality=0,
         modalities=["mri", "path"],
         representations=["group_binary"],

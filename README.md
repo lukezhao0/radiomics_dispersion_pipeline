@@ -6,13 +6,13 @@ Both pipelines use the Stanford Health Care AI Sandbox (GPT-5-nano Global) for L
 
 ## Pipelines at a glance
 
-|                     | **Approach 1**                                                           | **Approach 2**                                                               |
-| ------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| **Goal**            | Few-shot LLM prediction of dispersion score, high/low class, and relapse | Nested CV: lexical feature discovery → supervised ML → calibration & reports |
-| **Entry point**     | `approach1.py`                                                           | `approach2.py`                                                               |
+|                     | **Approach 1**                                                           | **Approach 2**                                                                  |
+| ------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| **Goal**            | Few-shot LLM prediction of dispersion score, high/low class, and relapse | Nested CV: lexical feature discovery → supervised ML → calibration & reports    |
+| **Entry point**     | `approach1.py`                                                           | `approach2.py`                                                                  |
 | **Auxiliary entry** | —                                                                        | `approach2_aux.py` (extraction), `approach2_generate_reports.py` (HTML reports) |
-| **Package**         | `approach1/`                                                             | `approach2/`                                                                 |
-| **Change log**      | [`approach1_progress.md`](approach1_progress.md)                         | [`approach2_progress.md`](approach2_progress.md)                             |
+| **Package**         | `approach1/`                                                             | `approach2/`                                                                    |
+| **Change log**      | [`approach1_progress.md`](approach1_progress.md)                         | [`approach2_progress.md`](approach2_progress.md)                                |
 
 **Approach 1** runs a SecureGPT few-shot evaluation across shot sets and modality tiers (MRI, pathology, combined). It predicts continuous dispersion, binary high/low dispersion, and relapse status directly from report text.
 
@@ -58,10 +58,6 @@ flowchart TD
     P --> Q[Generate plots + HTML reports]
 ```
 
-![Approach 2 nested evaluation pipeline](docs/approach2_pipeline_flowchart.png)
-
-*Figure: Approach 2 leakage-aware nested resampling pipeline. Lexicon discovery, calibration weights, and model fitting use outer-training data only; held-out test cases receive frozen rules and models.*
-
 #### Leakage-aware design
 
 - Outer splits are saved with provenance manifests under `outer_splits/outer_split_NNN/`.
@@ -96,7 +92,6 @@ flowchart TD
 - `--parallel-fold-workers` — concurrent outer folds (isolated split directories + checkpoints).
 - `--max-api-workers` — global API semaphore across folds/modalities.
 - `--parallel-modality-workers`, `--ml-n-jobs` — within-fold modality and GridSearch parallelism.
-
 
 - Python ≥ 3.10
 - Stanford AI Sandbox API key (`SANDBOX_API_KEY`)

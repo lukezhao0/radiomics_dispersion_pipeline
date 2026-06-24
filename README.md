@@ -6,13 +6,13 @@ Both pipelines use the Stanford Health Care AI Sandbox (GPT-5-nano Global) for L
 
 ## Pipelines at a glance
 
-| | **Approach 1** | **Approach 2** |
-|---|---|---|
-| **Goal** | Few-shot LLM prediction of dispersion score, high/low class, and relapse | Nested CV: lexical feature discovery → supervised ML → calibration & reports |
-| **Entry point** | `approach1.py` | `approach2.py` |
-| **Auxiliary entry** | — | `approach2_aux.py` (standalone MRI/path extraction) |
-| **Package** | `approach1/` | `approach2/` |
-| **Change log** | [`approach1_progress.md`](approach1_progress.md) | [`approach2_progress.md`](approach2_progress.md) |
+|                     | **Approach 1**                                                           | **Approach 2**                                                               |
+| ------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| **Goal**            | Few-shot LLM prediction of dispersion score, high/low class, and relapse | Nested CV: lexical feature discovery → supervised ML → calibration & reports |
+| **Entry point**     | `approach1.py`                                                           | `approach2.py`                                                               |
+| **Auxiliary entry** | —                                                                        | `approach2_aux.py` (standalone MRI/path extraction)                          |
+| **Package**         | `approach1/`                                                             | `approach2/`                                                                 |
+| **Change log**      | [`approach1_progress.md`](approach1_progress.md)                         | [`approach2_progress.md`](approach2_progress.md)                             |
 
 **Approach 1** runs a SecureGPT few-shot evaluation across shot sets and modality tiers (MRI, pathology, combined). It predicts continuous dispersion, binary high/low dispersion, and relapse status directly from report text.
 
@@ -32,10 +32,6 @@ flowchart TD
     I --> J[Save predictions JSONL/CSV]
     J --> K[Evaluate metrics vs ground truth]
 ```
-
-![Approach 1 pipeline flowchart](docs/approach1_pipeline_flowchart.png)
-
-*Figure: Approach 1 few-shot prediction pipeline (same structure as the Mermaid diagram above). Regenerate the PNG with `python scripts/generate_approach1_flowchart.py`; source: `docs/approach1_pipeline_flowchart.mmd`.*
 
 **Approach 2** is a nested outer/inner evaluation framework. It extracts quote-grounded lexical features from MRI and pathology reports, discovers stable lexicons within training folds only, trains supervised models for dispersion regression/classification and relapse prediction, and supports pathology-informed MRI calibration, teacher–student pathways, automated reports, and fold-level parallelism.
 

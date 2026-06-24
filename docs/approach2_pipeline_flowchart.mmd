@@ -1,0 +1,18 @@
+flowchart TD
+    A[Load CSV cases] --> B[Build outer splits]
+    B --> C[Save split provenance manifest]
+    C --> D[Train-only LLM extraction MRI + pathology]
+    D --> E[Inner rediscovery CV on train phrases]
+    E --> F[Freeze stable lexicon]
+    F --> G[Rule-based recode train + test]
+    G --> H[Build feature matrices]
+    H --> I{MRI-derived pathway?}
+    I -->|mri / combined / calibrated| J[Drop MRI-missing cases]
+    I -->|pathology-only| K[Keep all pathology cases]
+    J --> L[Optional pathology-calibrated MRI weights]
+    K --> L
+    L --> M[Optional teacher-student MRI multitask]
+    M --> N[Fit scaler/model on outer-train only]
+    N --> O[Predict outer-test]
+    O --> P[Aggregate metrics + bootstrap CI]
+    P --> Q[Generate plots + HTML reports]

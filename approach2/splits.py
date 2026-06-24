@@ -14,7 +14,6 @@ import sys
 import time
 import traceback
 from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -108,6 +107,86 @@ from approach2.text_utils import (
 # -----------------------------
 # Split generation
 # -----------------------------
+
+def case_id_list_hash(values: Sequence[Any]) -> str:
+    """Stable short hash for ordered case ID lists (split provenance)."""
+    import hashlib
+    payload = "\n".join(map(str, values))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def validate_outer_splits(
+    splits: Sequence[Tuple[np.ndarray, np.ndarray]],
+    scheme: str,
+    n_cases: int,
+) -> None:
+    """Fail loudly on train/test overlap or invalid k-fold coverage."""
+    if not splits:
+        raise ValueError("No outer splits were generated.")
+
+    test_counts: Counter = Counter()
+    for split_idx, (train_idx, test_idx) in enumerate(splits, 1):
+        train_set = set(int(x) for x in train_idx)
+        test_set = set(int(x) for x in test_idx)
+        overlap = train_set & test_set
+        if overlap:
+            raise ValueError(
+                f"Outer split {split_idx}: train/test overlap detected for indices {sorted(overlap)[:10]}"
+            )
+        if train_set | test_set != set(range(n_cases)):
+            missing = set(range(n_cases)) - (train_set | test_set)
+            extra = (train_set | test_set) - set(range(n_cases))
+            raise ValueError(
+                f"Outer split {split_idx}: split does not partition all cases "
+                f"(missing={len(missing)} extra={len(extra)})."
+            )
+        for idx in test_set:
+            test_counts[idx] += 1
+
+    if scheme == "stratified_kfold":
+        expected_folds = len(splits)
+        bad = {idx: c for idx, c in test_counts.items() if c != 1}
+        if bad:
+            preview = dict(list(bad.items())[:5])
+            raise ValueError(
+                f"stratified_kfold requires each case in held-out test exactly once across "
+                f"{expected_folds} folds; violations (index->count): {preview}"
+            )
+        print(
+            f"[OUTER] Validated stratified_kfold: {expected_folds} folds, "
+            f"each of {n_cases} cases held out exactly once."
+        )
+    elif scheme == "repeated_mc":
+        print(
+            f"[OUTER] Validated repeated_mc: {len(splits)} independent 80/20 draws; "
+            f"cases may appear in multiple outer-test sets (dedup uses mean aggregation)."
+        )
+    else:
+        raise ValueError(f"Unsupported outer scheme for validation: {scheme}")
+
+
+def log_outer_split_summary(
+    splits: Sequence[Tuple[np.ndarray, np.ndarray]],
+    y_binary: np.ndarray,
+    scheme: str,
+    n_repeats: int,
+    test_frac: float,
+    n_folds: int,
+) -> None:
+    """Log split mode and per-fold label distributions."""
+    print(
+        f"[OUTER] scheme={scheme} n_splits={len(splits)} "
+        f"repeats={n_repeats} test_frac={test_frac} folds={n_folds}"
+    )
+    for split_idx, (train_idx, test_idx) in enumerate(splits, 1):
+        y_train = y_binary[np.asarray(train_idx, dtype=int)]
+        y_test = y_binary[np.asarray(test_idx, dtype=int)]
+        print(
+            f"[OUTER] split={split_idx:03d} n_train={len(train_idx)} n_test={len(test_idx)} "
+            f"train_pos={int(y_train.sum())}/{len(y_train)} "
+            f"test_pos={int(y_test.sum())}/{len(y_test)}"
+        )
+
 
 def build_outer_splits(
     y_binary: np.ndarray,

@@ -21,6 +21,7 @@ from ..extraction.config import (
 from ..extraction.data import Case
 from ..prompts.builder import build_user_prompt
 from ..prompts.extraction import SYSTEM_MSG
+from ..text_utils import is_affirmative_response, is_negative_response
 
 # -----------------------------
 # Token / cost tracking helpers
@@ -168,17 +169,48 @@ def write_cost_tracker_json(out_dir: str, filename: str = "llm_token_cost_report
     path = os.path.join(out_dir, filename)
     payload = get_cost_tracker_snapshot()
     payload.update({
+        "cost_type": "post_run_actual",
         "model": DEPLOYMENT,
         "api_version": API_VERSION,
         "price_per_1M_input_tokens": PRICE_PER_1M_INPUT_TOKENS,
         "price_per_1M_cached_input_tokens": PRICE_PER_1M_CACHED_INPUT_TOKENS,
         "price_per_1M_output_tokens": PRICE_PER_1M_OUTPUT_TOKENS,
+        "billing_note": (
+            "Post-run actuals from API usage metadata. cached_tokens are subtracted from "
+            "prompt_tokens for uncached input billing; they are not double-counted."
+        ),
         "written_at": datetime.now().isoformat(timespec="seconds"),
     })
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
         f.write("\n")
-    print(f"[SAVE] Wrote LLM token/cost report: {path}")
+    print(f"[SAVE] Wrote LLM token/cost report (post-run actuals): {path}")
+    return path
+
+
+def write_apriori_cost_estimate_json(
+    out_dir: str,
+    estimate: Dict[str, Any],
+    label: str = "planned pipeline",
+    filename: str = "llm_cost_estimate_apriori.json",
+) -> str:
+    """Persist a-priori cost estimate separately from post-run actuals."""
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, filename)
+    payload = dict(estimate)
+    payload.update({
+        "cost_type": "apriori_estimate",
+        "estimate_scope": label,
+        "assumptions": (
+            "Uses rendered prompts for scheduled cases, MAX_TOKENS completion cap per call, "
+            "and optional static-prefix cache model within modality. Not exact billing."
+        ),
+        "written_at": datetime.now().isoformat(timespec="seconds"),
+    })
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+        f.write("\n")
+    print(f"[SAVE] Wrote a-priori LLM cost estimate: {path}")
     return path
 
 
@@ -304,6 +336,8 @@ def print_apriori_cost_estimate_report(estimate: Dict[str, Any], label: str = "p
     print(f"cache_aware_estimated_cost:    ${estimate['cache_aware_estimated_cost_usd']:.8f}")
     print(f"cache_aware_cached_tokens:     {estimate['cache_aware_estimated_cached_tokens']}")
     print(f"cache_aware_cache_savings:     ${estimate['cache_aware_estimated_cache_savings_usd']:.8f}")
+    if "temperature" in estimate:
+        print(f"temperature:                   {estimate['temperature']}")
     print("[A-PRIORI NOTE] This uses the full prompts that will be sent, plus the configured completion-token cap. Actual cost is recomputed from API usage after each call.")
 
 
@@ -316,11 +350,13 @@ def confirm_cost_estimate_or_exit(estimate: Dict[str, Any], assume_yes: bool = F
             "Interactive cost confirmation is required but stdin is not a TTY. "
             "Rerun with --yes after reviewing the printed a-priori estimate."
         )
-    prompt = "Continue with LLM extraction calls? Type YES to continue: "
-    # Use the real terminal streams so confirmation works even when stdout is teed.
+    prompt = "Continue with LLM extraction calls? [yes/no]: "
     sys.__stdout__.write(prompt)
     sys.__stdout__.flush()
     reply = sys.__stdin__.readline().strip()
-    if reply != "YES":
-        print("[ABORT] User did not type YES; exiting before LLM extraction calls.")
+    if is_negative_response(reply):
+        print("[ABORT] User declined; exiting before LLM extraction calls.")
+        raise SystemExit(1)
+    if not is_affirmative_response(reply):
+        print("[ABORT] Unrecognized response; type yes/y or no/n. Exiting before LLM extraction calls.")
         raise SystemExit(1)

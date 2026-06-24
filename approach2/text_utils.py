@@ -74,3 +74,20 @@ def clean_phrase_for_display(s: str) -> str:
     s = str(s or "").strip()
     s = re.sub(r"\s+", " ", s)
     return s
+
+
+def normalize_yes_no(reply: str) -> str:
+    """Normalize interactive confirmation answers to yes/no/empty."""
+    return str(reply or "").strip().lower()
+
+
+def is_affirmative_response(reply: str) -> bool:
+    """Return True for yes/y (any case)."""
+    norm = normalize_yes_no(reply)
+    return norm in {"yes", "y"}
+
+
+def is_negative_response(reply: str) -> bool:
+    """Return True for no/n (any case)."""
+    norm = normalize_yes_no(reply)
+    return norm in {"no", "n"}

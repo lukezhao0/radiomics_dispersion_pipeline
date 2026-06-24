@@ -767,3 +767,381 @@ pytest tests/approach2/
 ```
 
 All approach2 tests passed (including new nested-import smoke tests).
+
+---
+
+## 2026-06-23 — Audit / Current Behavior Review (Prompt 1)
+
+### Scope
+
+Read-only audit of the modular `pipeline/approach2/` package, thin shims (`approach2.py`, `approach2_aux.py`), tests under `pipeline/tests/approach2/`, README, and partial run artifacts in `sabcs/securegpt_dispersion_approach2_pipeline/` (outer splits 001–002 in progress at audit time). No code changes in this pass.
+
+### Files inspected (major)
+
+| Area | Paths |
+|------|--------|
+| Entry / CLI | `approach2.py`, `approach2_aux.py`, `approach2/cli.py`, `approach2/extraction/cli.py` |
+| Splits / orchestration | `approach2/splits.py`, `approach2/orchestration.py` |
+| LLM extraction | `approach2/extraction/pipeline.py`, `schema.py`, `data.py`, `config.py`, `prompts/builder.py`, `prompts/extraction.py` |
+| API / cost | `approach2/api/client.py`, `approach2/api/cost.py` |
+| Features / lexicon | `approach2/lexicon.py`, `recoding.py`, `features/matrices.py`, `features/normalize.py`, `calibration.py`, `audit.py` |
+| ML / eval | `approach2/models_ml.py`, `models.py`, `eval_data.py`, `evaluation/plots.py`, `metrics/stats.py` |
+| Reports | `approach2/reports.py`, `html_report.py` |
+| Tests | `pipeline/tests/approach2/*` (11 files; no leakage or missing-MRI integration tests) |
+| Docs | `pipeline/README.md`, this file |
+| Run artifacts | `outer_split_*_split_manifest.json`, train extraction checkpoints, partial logs |
+
+### What appears correct
+
+- **Leakage-aware outer-train LLM extraction**: `run_outer_split_for_modality()` calls `extract_subset_records()` on **outer-train row indices only**; held-out cases are featurized via `recode_cases_with_frozen_lexicon()` (regex/phrase matching), not fresh LLM calls.
+- **Inner rediscovery on outer-train only**: `build_stable_lexicon_from_training_extractions()` uses `build_rediscovery_subsplits()` over training case IDs only.
+- **Frozen artifacts before test scoring**: stable lexicons, recoded matrices, calibration weights, and `GridSearchCV` pipelines (imputer, `LowInfoFeatureFilter`, scaler, model) are fit on outer-train rows; predictions are generated only for outer-test rows in `fit_one_outer_model()`.
+- **Split provenance**: each fold writes `{split_id}_split_provenance.csv` and `{split_id}_split_manifest.json` with train/test IDs and hashes (`orchestration.write_split_provenance`).
+- **Missing-MRI filtering at ML stage**: `filter_missing_mri_for_dataset()` drops MRI-missing rows for `mri`, `combined`, `mri_pathcal*`, and `mri_teacher_student` before model fitting; pathology-only keeps all cases.
+- **Resume layers**: per-case JSON checkpoints under `_case_checkpoints/`; per-split `_split_resume_checkpoint/COMPLETED.json` plus CSV snapshots of predictions/metrics/lexicons.
+- **Parallelism**: fold-level (`--parallel-fold-workers`), modality-level, case-level extraction threads, and global API semaphore (`configure_global_api_concurrency`).
+- **Cost tracking**: a-priori estimates from real prompts (`estimate_nested_pipeline_llm_cost`); post-run cumulative tracker → `llm_token_cost_report.json`.
+- **Reporting**: automated MD/HTML reports, bootstrap CIs, relapse diagnostics, deduplicated aggregate metrics, many plot types under `report_plots/`.
+
+### Bugs, risks, or incomplete behavior
+
+| Issue | Severity | Evidence |
+|-------|----------|----------|
+| **Default outer scheme is `repeated_mc` (5×80/20)** | Intentional (confirm in docs) | `cli.py` default; live manifest shows `"outer_scheme": "repeated_mc"`. Prompt 2 will document—not change—this default. Use `stratified_kfold` only when explicit disjoint CV is needed. |
+| **Repeated-MC dedup averages overlapping test predictions** | Statistical | `deduplicate_outer_predictions()` mean-aggregates when a case appears in multiple outer-test sets; not equivalent to one disjoint CV fold-out per case. |
+| **`TEMPERATURE = 0.0` defined but not sent in API payload** | Minor / nondeterminism risk | `extraction/config.py` vs `api/client.py` `_post_chat_completion` (no `temperature` key). |
+| **Cost confirmation requires exact `YES` (case-sensitive)** | UX | `confirm_cost_estimate_or_exit()` in `api/cost.py`. |
+| **No resume fingerprint for CSV/split args** | Resume safety | `COMPLETED.json` stores metadata but reload does not verify `train_case_hash` against regenerated splits. **Scheduled for Prompt 2.** |
+| **No dedicated MRI-missing summary artifact** | Reporting gap | Only log lines `[MISSING_MRI]` and per-case flags in `missed_case_error_analysis.csv`. **Scheduled for Prompt 2:** `mri_missing_case_summary.csv`. |
+| **No top-K / cross-modality feature-count balancing** | By design (documented) | Stability threshold only; interpretability report states unequal counts intentional. |
+| **Teacher-student pathway: no relapse target** | Incomplete vs spec | `fit_teacher_student_mri_model()` fits dispersion regression + high/low only. **Scheduled for Prompt 2.** |
+| **Phase-6 tests deferred** | Test gap | No golden-fold, leakage, or missing-MRI ML-filter tests (noted in progress 2026-06-23). |
+| **Test featurization ≠ train featurization** | Methodological | Test uses substring + ontology regex recoding, not LLM. See Prompt 2 plan for permissiveness/miss-risk analysis and coverage diagnostics. |
+
+### Leakage risks (residual)
+
+- Low risk if `--outer-scheme stratified_kfold` and frozen lexicon discipline are used as intended.
+- **Repeated MC + mean dedup** can inflate effective sample size and blur held-out interpretation.
+- **Fixed ontology patterns** in `SHARED_CONCEPT_ONTOLOGY` apply to test reports (not data-driven; acceptable if treated as prior knowledge).
+- **Resume without hash validation** could mix artifacts if `--csv-path`, seed, or split flags change between runs.
+
+### Missing MRI handling (audit)
+
+- Extraction: placeholder record, no API call (`make_missing_extraction_record`).
+- Cost estimate: skips missing-text prompts.
+- ML: `filter_missing_mri_for_dataset()` after matrix build — **correct for listed pathways**.
+- Combined: early-fusion merge then filter — **correct**.
+- Gap: no aggregate per-split/per-modality skip counts saved to disk.
+
+### Cost estimation (audit)
+
+- A-priori: builds actual `build_user_prompt()` per scheduled train case; conservative completion cap = `MAX_TOKENS` per call; optional cache-aware prefix model.
+- Post-run: parses API `usage` including cached and reasoning tokens; writes `llm_token_cost_report.json`.
+- Gaps: no per-split/per-modality cost breakdown in JSON; a-priori uses rough tokenizer heuristic (tiktoken optional).
+
+### Implementation plan (next two prompts)
+
+**Prompt 2 — Correctness, resume safety, teacher–student relapse, and reporting**
+
+**Design defaults (confirm, do not change)**
+
+1. **Keep `repeated_mc` as the default outer scheme** (`--outer-repeats 5`, `--outer-test-frac 0.20`). This matches the intended 80/20 Monte Carlo repeated-split design; do **not** switch the default to `stratified_kfold`. Document in README/methodology that:
+   - each repeat is an independent stratified 80/20 draw;
+   - `deduplicate_outer_predictions()` mean-aggregates cases that appear in multiple outer-test sets;
+   - users who want disjoint one-holdout-per-case CV must explicitly pass `--outer-scheme stratified_kfold --outer-folds 5`.
+2. Optionally add a startup log line summarizing outer scheme, repeats, and deduplication rule so runs are self-describing.
+
+**Resume fingerprint validation**
+
+3. On split resume (`load_completed_split_checkpoint`), verify regenerated splits match saved provenance before skipping a fold:
+   - recompute `build_outer_splits()` from current `args` + `target_df`;
+   - for the requested `split_id`, compare `train_case_hash` / `test_case_hash` (and optionally ordered ID lists) against `{split_id}_split_manifest.json`;
+   - also validate `COMPLETED.json` metadata (`csv_path`, `outer_scheme`, `outer_repeats`, `outer_test_frac`, `outer_folds`, `random_seed`) against current CLI args;
+   - on mismatch: refuse to load checkpoint, log a clear error, and recompute the split (or exit with instructions to use `--no-skip-completed-splits` after intentional config change).
+4. Add tests for fingerprint match/mismatch behavior.
+
+**Teacher–student: relapse prediction**
+
+5. Extend `fit_teacher_student_mri_model()` and `run_one_outer_split()` teacher–student block to produce held-out **relapse** classification predictions (`target_name=relapse_status`, `target_col=relapse_true`), alongside existing dispersion regression and high/low classification.
+6. Reuse the same MRI-only feature matrix and pathology teacher signals from outer-train only; do not leak test pathology into student inputs.
+7. Add relapse metrics to fold/aggregate outputs and teacher–student sections of automated reports when predictions exist.
+8. Skip fold gracefully when relapse train/test class counts are insufficient (same guards as other classifiers).
+
+**Dedicated MRI-missing skip-count summary**
+
+9. Write `mri_missing_case_summary.csv` at run end (and per-split rows where applicable) with at least:
+   - overall count of MRI-missing cases in the target-eligible cohort;
+   - per `split_id`, per `dataset_key` / pathway: `n_before_filter`, `n_skipped_missing_mri`, `n_after_filter` for train and test partitions;
+   - echo totals in `automated_results_report.md/html`.
+10. Hook into `filter_missing_mri_for_dataset()` (accumulate counts) or a single post-pass over provenance + raw flags.
+
+**Test featurization via regex / substring recoding — permissiveness and miss risk**
+
+Held-out cases are **not** LLM-extracted. `recode_cases_with_frozen_lexicon()` applies two mechanisms:
+
+| Mechanism | How it matches | Permissiveness |
+|-----------|----------------|----------------|
+| **Stable phrase features** | Exact normalized substring: `report_norm.find(quote_norm)` after `normalize_text()` (lowercase, collapsed whitespace) | **Strict / conservative.** Not regex-based. Requires verbatim (normalized) quote from train-stable lexicon. |
+| **Group / ontology features** | `re.finditer()` over fixed `CANONICAL_GROUP_PATTERNS` (e.g. `\bmultifocal\b`, `\bmeasur`, `\bnme\b`) on normalized report text | **Moderately permissive** within a fixed vocabulary. Some patterns are broad stems; others use word boundaries. Counts all regex hits; negation/uncertainty judged in ±80-char context. |
+
+**Negation / uncertainty context** (both mechanisms): `detect_negation()` / `detect_uncertainty()` on a **±80 character** window using small fixed regex lists (`NEGATION_PATTERNS`, `UNCERTAINTY_PATTERNS` in `config.py`). This is narrower than full-clause clinical negation parsing.
+
+**What can be missed on test (false negatives relative to train LLM extraction)**
+
+- **Unstable phrases**: denovo/seed phrases seen on train but below `--stability-threshold` never enter the frozen lexicon.
+- **Paraphrases / synonyms**: test report uses different wording than the frozen `quote_norm` → substring match fails even if clinically equivalent.
+- **Normalization drift**: punctuation, line breaks, or spelling differences that survive differently through `normalize_text()` vs LLM quote repair (`schema.py` sanitization on train only).
+- **First-match-only phrases**: `.find()` uses the first occurrence; later mentions are ignored for phrase `present`.
+- **No novel test-only language**: any finding an LLM would extract on test but that is not in the stable phrase list or ontology regex set is **silently dropped** (features stay zero).
+- **Ontology ceiling**: group features cannot fire for concepts outside `SHARED_CONCEPT_ONTOLOGY` patterns unless they were also promoted via stable phrase→group mapping on train.
+
+**Leakage vs coverage tradeoff**
+
+- This design is **intentionally leakage-safe** (test reports are not fed back into discovery) but **not coverage-equivalent** to per-case LLM extraction on test.
+- Risk is predominantly **under-featurization / false negatives on held-out cases**, not label leakage. Models may look worse than a full LLM-on-test upper bound would suggest.
+- Group ontology recoding can be **broader** than phrase matching (fixed regex list applies to all cases), so group/phrase channels are asymmetric.
+
+**Prompt 2 tasks for test featurization**
+
+11. Add **recode coverage diagnostics** per split/modality:
+    - phrase hit rate: fraction of stable phrases with `present>0` on train vs test;
+    - fraction of test cases with zero phrase hits but nonzero group hits (and vice versa);
+    - optional audit CSV: `recode_coverage_by_split.csv`.
+12. Document findings in methodology markdown and interpretability report (do not change recoding logic unless audit shows unacceptable drop-off; if needed later, consider fuzzy quote matching or test-time LLM with frozen lexicon validation as a separate sensitivity analysis).
+
+**Other Prompt 2 items**
+
+13. Fix API payload: pass `temperature` when set; make `YES` confirmation case-insensitive.
+14. Add tests: `test_missing_mri_filter.py`, `test_splits_leakage.py` (mirror approach1), `test_resume_fingerprint.py`, golden-fold smoke without API.
+
+**Prompt 3 — Features, reporting & optional enhancements**
+
+1. Configurable stability threshold sensitivity + optional `--top-k-stable-features` per modality (train-only ranking by selection frequency).
+2. Spearman scatter plots for top regression models; per-fold performance tables in HTML report.
+3. Modality/pathway comparison and calibration-ablation summary plots when ablations enabled.
+4. Approach 2 flowchart (mirror Approach 1 `docs/` pattern).
+5. Per-split cost accounting in `llm_token_cost_report.json`.
+6. Optional sensitivity: test-time LLM extraction with frozen-lexicon-only scoring (only if recode coverage audit warrants it).
+
+---
+
+## 2026-06-23 — Prompt 2: Pipeline correctness, configuration, resume, and parallelism
+
+### Summary
+
+Implemented Prompt 2 core fixes across the modular `pipeline/approach2/` package: case-insensitive cost confirmation, configurable LLM temperature, hardened missing-MRI handling, outer-split validation and provenance reload, permissive configurable stability threshold, optional per-modality stable-feature cap, improved cost estimate/actual accounting, resume fingerprint validation, teacher-student relapse predictions, and parallelism/resume safety improvements.
+
+### Files changed
+
+| File | Changes |
+|------|---------|
+| `approach2/text_utils.py` | `normalize_yes_no()`, `is_affirmative_response()`, `is_negative_response()` |
+| `approach2/api/cost.py` | Case-insensitive confirmation; `write_apriori_cost_estimate_json()`; post-run `cost_type` label; cached-token billing note |
+| `approach2/api/client.py` | Pass `temperature` in chat payload; log at init |
+| `approach2/extraction/config.py` | `TEMPERATURE` from `LLM_TEMPERATURE` / `TEMPERATURE` env (default 0.0) |
+| `approach2/extraction/text_helpers.py` | `_is_missing_text()` treats NA/N/A/nan/none/etc. placeholders as missing |
+| `approach2/config.py` | `DEFAULT_STABILITY_THRESHOLD = 0.35` |
+| `approach2/eval_data.py` | `has_usable_mri_report()`, `filter_cases_for_modality()`, cohort summary, filter stats tuple, `write_mri_missing_case_summary()` |
+| `approach2/splits.py` | `case_id_list_hash()`, `validate_outer_splits()`, `log_outer_split_summary()` |
+| `approach2/checkpoint.py` | **New** — split resume fingerprinting, manifest reload, artifact validation |
+| `approach2/lexicon.py` | `cap_stable_phrase_lexicon()`, lexicon metadata JSON, `--target-stable-features-per-modality` support |
+| `approach2/io_atomic.py` | `atomic_write_json()`, `is_valid_json_file()` |
+| `approach2/orchestration.py` | Resume fingerprint + manifest reload; train/test overlap guard; MRI extraction skip; filter stats; teacher-student relapse |
+| `approach2/models_ml.py` | Teacher-student optional relapse logistic head on MRI features |
+| `approach2/cli.py` | `--temperature`, `--target-stable-features-per-modality`, split validation logging, cohort/MRI summaries, a-priori cost JSON |
+| `tests/approach2/test_*.py` | New/updated tests (see Validation) |
+
+### 1. Case-insensitive confirmation
+
+- `confirm_cost_estimate_or_exit()` accepts `yes`/`y` (any case) and rejects `no`/`n`.
+- `--yes` flag unchanged for non-interactive runs.
+
+### 2. LLM temperature
+
+- CLI: `--temperature` (default `0.0`); sets `approach2.extraction.config.TEMPERATURE` before API calls.
+- API payload key: `temperature` (Azure OpenAI chat-completions).
+- Logged at startup, in a-priori estimate JSON, and in split resume fingerprint.
+
+### 3. Missing MRI handling
+
+- Placeholder strings (`NA`, `N/A`, `nan`, `none`, etc.) now count as missing MRI/pathology text.
+- MRI extraction skips outer-train cases without usable MRI (no API call).
+- `filter_missing_mri_for_dataset()` returns stats; writes `mri_missing_case_summary.csv` and `cohort_report_availability_summary.json`.
+- Pathology-only pathways keep all cases; MRI/combined/calibrated/teacher-student drop missing-MRI rows before ML.
+
+### 4. Outer split strategy (unchanged default, now validated)
+
+- **Default remains `repeated_mc`**: 5× stratified 80/20 Monte Carlo draws (`--outer-repeats 5`, `--outer-test-frac 0.20`).
+- `validate_outer_splits()` asserts no train/test overlap per split.
+- `stratified_kfold`: asserts each case in held-out test exactly once across 5 folds.
+- `log_outer_split_summary()` logs per-fold sizes and label balance.
+- Resume reloads train/test IDs from `{split_id}_split_manifest.json` when present.
+- `deduplicate_outer_predictions()` unchanged (mean-aggregate for repeated MC).
+
+Use disjoint CV explicitly: `--outer-scheme stratified_kfold --outer-folds 5`.
+
+### 5. Stability threshold
+
+- Default `--stability-threshold` lowered from `0.60` → `0.35` (`DEFAULT_STABILITY_THRESHOLD`).
+- Threshold logged; per-modality `{split_id}_stable_lexicon_metadata_{mode}.json` saved.
+
+### 6. Normalized stable feature counts
+
+- `--target-stable-features-per-modality N` (default `0` = no cap).
+- Train-only ranking by `selection_frequency`, `mean_support_cases`, `n_rows`.
+- If fewer stable features than target, uses all available and records note in metadata.
+
+### 7. Cost estimation
+
+- **A-priori**: `llm_cost_estimate_apriori.json` (`cost_type=apriori_estimate`); assumptions documented.
+- **Post-run**: `llm_token_cost_report.json` (`cost_type=post_run_actual`); cached tokens not double-counted.
+- Temperature included in a-priori estimate payload.
+
+### 8. Resume
+
+- `COMPLETED.json` includes full `fingerprint` (csv, splits, seed, temperature, stability, modalities, etc.).
+- Reload validates fingerprint + split manifest hashes before skipping a fold.
+- Invalid/empty checkpoint tables trigger recompute.
+- Case checkpoints unchanged; atomic writes for marker and CSV snapshots.
+
+### 9. Parallelism
+
+- No behavioral change to fold/modality/API worker model; existing `coordinate_parallelism()` and global API semaphore retained.
+- Per-fold isolated directories + resume fingerprint make parallel resume safe.
+
+### 10. Teacher-student relapse
+
+- `fit_teacher_student_mri_model()` adds MRI-only logistic relapse head when train/test class counts sufficient.
+- Predictions emitted with `target_name=relapse_status`.
+
+### Bugs fixed
+
+| Bug | Fix |
+|-----|-----|
+| Cost confirmation required exact `YES` | Case-insensitive yes/y |
+| `TEMPERATURE` not sent to API | Added to payload |
+| `NA` MRI placeholders treated as usable text | Expanded `_is_missing_text()` |
+| Resume ignored config/split changes | Fingerprint + manifest validation |
+| No MRI skip summary artifact | `mri_missing_case_summary.csv` |
+| Teacher-student missing relapse | Logistic relapse head added |
+| No outer split overlap assertion | `validate_outer_splits()` |
+
+### Deferred to Prompt 3
+
+- Recode coverage diagnostics (`recode_coverage_by_split.csv`)
+- Per-split cost breakdown in post-run JSON
+- Spearman scatter plots, per-fold HTML tables, flowchart
+- Golden-fold regression with synthetic extraction fixtures
+
+### Validation performed
+
+```bash
+cd pipeline
+SANDBOX_API_KEY=dummy .venv/bin/python -m pytest tests/approach2/ -q
+# 57 passed
+
+SANDBOX_API_KEY=dummy .venv/bin/python approach2.py --help
+SANDBOX_API_KEY=dummy .venv/bin/python approach2_aux.py --help
+```
+
+Not run (requires credentials/data): full nested pipeline, live API preflight, resume simulation on partial `sabcs/` artifacts.
+
+### How to validate a real run
+
+```bash
+cd pipeline
+export SANDBOX_API_KEY=...
+python approach2.py \
+  --csv-path /path/to/cases.csv \
+  --out_dir ./outputs/approach2_prompt2_smoke \
+  --modalities mri path \
+  --outer-repeats 1 \
+  --parallel-fold-workers 1 \
+  --yes
+```
+
+Check outputs: `mri_missing_case_summary.csv`, `llm_cost_estimate_apriori.json`, `outer_splits/outer_split_001/*_split_manifest.json`, `*_stable_lexicon_metadata_*.json`.
+
+### Suggested next step (Prompt 3)
+
+```bash
+# Reporting, recode coverage diagnostics, per-split cost breakdown, plots
+cd pipeline && SANDBOX_API_KEY=dummy python approach2.py --regenerate-reports-only --out_dir <existing_out_dir> --csv-path <same_csv>
+```
+
+---
+
+## 2026-06-23 — Prompt 3: Reporting, flowchart, README, and HTML review pages (DONE)
+
+### Reporting files added/changed
+
+| File | Change |
+|------|--------|
+| `approach2/reports.py` | Enhanced results/interpretability reports; added `generate_missed_case_html_report()`, `generate_all_reports()`, Spearman rank plot, pathway comparison, per-fold MAE plot, run-metadata sections |
+| `approach2/html_report.py` | Plot captions for new figures; `Dict` import fix |
+| `approach2/report_cli.py` | **New** standalone report generator CLI |
+| `approach2_generate_reports.py` | **New** thin entry-point shim |
+| `approach2/cli.py` | End-of-run reporting delegates to `generate_all_reports()` |
+| `scripts/generate_approach2_flowchart.py` | **New** flowchart PNG renderer |
+| `docs/approach2_pipeline_flowchart.{mmd,png}` | **New** canonical Approach 2 diagram |
+| `README.md` | Approach 2 overview, flowchart, leakage/MRI/split/resume/report commands |
+| `tests/approach2/test_report_generation.py` | **New** help, synthetic, and integration tests |
+
+### Flowchart path
+
+`pipeline/docs/approach2_pipeline_flowchart.png` (source: `pipeline/docs/approach2_pipeline_flowchart.mmd`)
+
+### HTML report generator commands
+
+```bash
+cd pipeline
+
+# Standalone report generator (recommended)
+python approach2_generate_reports.py --run-dir <RUN_DIR> --csv-path <CSV> --force
+
+python -m approach2.report_cli --run-dir <RUN_DIR> --force --open
+
+# Via main pipeline flag (still supported)
+python approach2.py --regenerate-reports-only --out_dir <RUN_DIR> --csv-path <CSV>
+```
+
+### Generated HTML outputs
+
+| Report | HTML path | Markdown mirror |
+|--------|-----------|-----------------|
+| Results review | `automated_results_report.html` | `automated_results_report.md` |
+| Interpretability review | `interpretability_report.html` | `interpretability_report.md` |
+| Missed-case review | `missed_case_review.html` | `missed_case_error_analysis.md` (+ `.csv`) |
+
+### Plots/tables added
+
+- `report_plots/top_regression_spearman_rank.png`
+- `report_plots/pathway_modality_comparison.png`
+- `report_plots/per_fold_regression_mae.png`
+- `interpretability_plots/feature_count_by_modality.png`
+- `interpretability_plots/feature_prevalence_by_modality.png`
+- `interpretability_plots/top_regression_coefficients.png`
+- Results HTML: run overview, split summary, MRI-missing table, label distributions, per-fold metrics table
+
+### Known missing optional artifacts (graceful degradation)
+
+- `mri_missing_case_summary.csv`, `cohort_report_availability_summary.json` — only when full pipeline completes with Prompt 2+ code
+- `all_outer_mri_pathology_reliability_matrices.csv`, weighted lexicons — only when `--enable-pathology-calibration`
+- Teacher-student / calibration-ablation metrics — only when those flags enabled
+- `recode_coverage_by_split.csv`, per-split cost breakdown — still deferred
+- Missed-case MRI flags require `--csv-path` for raw report text columns
+
+### Validation performed
+
+```bash
+cd pipeline
+SANDBOX_API_KEY=dummy .venv/bin/python approach2_generate_reports.py --help
+SANDBOX_API_KEY=dummy .venv/bin/python -m pytest tests/approach2/test_report_generation.py -v
+SANDBOX_API_KEY=dummy .venv/bin/python approach2_generate_reports.py \
+  --run-dir ../sabcs/securegpt_dispersion_approach2 --force
+test -f docs/approach2_pipeline_flowchart.png
+grep -q approach2_pipeline_flowchart.png README.md
+```
+
+Not run: live API pipeline, browser `--open` smoke test.
+

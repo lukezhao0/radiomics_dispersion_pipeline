@@ -599,7 +599,9 @@ def fit_teacher_student_mri_model(
     lambda_dispersion: float,
     lambda_teacher_score: float,
     lambda_path_concepts: float,
-) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
+    y_train_relapse: Optional[pd.Series] = None,
+    y_test_relapse: Optional[pd.Series] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame, Optional[pd.DataFrame], Dict[str, Any]]:
     """Simple multi-output ridge student.
 
     Inputs are MRI-only. Training targets include the true continuous dispersion,
@@ -647,6 +649,36 @@ def fit_teacher_student_mri_model(
         "y_prob": y_prob,
         "y_pred": y_pred_binary,
     })
+
+    relapse_pred: Optional[pd.DataFrame] = None
+    if y_train_relapse is not None and y_test_relapse is not None:
+        y_tr = y_train_relapse.dropna().astype(int)
+        y_te = y_test_relapse.dropna().astype(int)
+        if len(y_tr) >= 3 and len(np.unique(y_tr.values)) >= 2 and len(y_te) > 0:
+            train_idx = y_train_relapse.notna()
+            test_idx = y_test_relapse.notna()
+            clf = Pipeline([
+                ("imputer", SimpleImputer(strategy="median")),
+                ("lowinfo", LowInfoFeatureFilter()),
+                ("scaler", StandardScaler()),
+                ("model", LogisticRegression(
+                    penalty="l2",
+                    solver="liblinear",
+                    class_weight="balanced",
+                    max_iter=5000,
+                    random_state=split_random_seed,
+                )),
+            ])
+            clf.fit(X_mri_train.loc[train_idx], y_tr)
+            y_prob_rel = clf.predict_proba(X_mri_test.loc[test_idx])[:, 1]
+            relapse_pred = pd.DataFrame({
+                "y_true": y_te.values,
+                "y_prob": y_prob_rel,
+                "y_pred": (y_prob_rel >= 0.5).astype(int),
+            })
+        else:
+            print("[TEACHER_STUDENT] Skipping relapse head: insufficient class counts in train/test.")
+
     hyper = {
         "teacher_student_alpha": alpha,
         "lambda_dispersion": lambda_dispersion,
@@ -656,6 +688,7 @@ def fit_teacher_student_mri_model(
         "n_path_concept_targets": len(concept_cols),
         "n_train": len(X_mri_train),
         "n_test": len(X_mri_test),
+        "relapse_head_fitted": relapse_pred is not None,
     }
     coef_df = extract_fitted_feature_coefficients(pipe, list(X_mri_train.columns))
-    return reg_pred, cls_pred, {"hyper": hyper, "coef_df": coef_df}
+    return reg_pred, cls_pred, relapse_pred, {"hyper": hyper, "coef_df": coef_df}

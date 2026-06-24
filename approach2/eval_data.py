@@ -2,108 +2,14 @@
 
 from __future__ import annotations
 
-import argparse
-import contextlib
-import hashlib
-import html
-import json
-import math
 import os
-import re
-import sys
-import time
-import traceback
-from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import ElasticNet, HuberRegressor, LogisticRegression, Ridge
-from sklearn.metrics import (
-    accuracy_score,
-    average_precision_score,
-    brier_score_loss,
-    confusion_matrix,
-    f1_score,
-    mean_absolute_error,
-    mean_squared_error,
-    mutual_info_score,
-    precision_recall_curve,
-    precision_score,
-    r2_score,
-    recall_score,
-    roc_auc_score,
-    roc_curve,
-)
-from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold, StratifiedShuffleSplit, cross_val_predict
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.svm import LinearSVR, SVC
 
-from approach2.config import (
-    AMBIGUITY_GROUPS,
-    CANONICAL_GROUP_PATTERNS,
-    COEF_ZERO_TOL,
-    DEFAULT_BOOTSTRAP_N,
-    DISPERSION_TRUE_HIGH_THRESHOLD,
-    DISTRIBUTION_GROUPS,
-    EPS,
-    INNER_CV_MAX_SPLITS,
-    META_COLS,
-    NEGATION_PATTERNS,
-    RANDOM_SEED,
-    SHARED_CONCEPT_ONTOLOGY,
-    SPATIAL_MORPH_RESPONSE_GROUPS,
-    TARGET_NAME_DISPERSION_HIGH_LOW,
-    TARGET_NAME_DISPERSION_SCORE,
-    TARGET_NAME_RELAPSE_STATUS,
-    UNCERTAINTY_PATTERNS,
-)
-from approach2.extraction import (
-    MAX_TOKENS,
-    Tee,
-    _is_missing_text,
-    _selected_report_text,
-    _true_dispersion_high_low,
-    build_html_report,
-    build_user_prompt,
-    confirm_cost_estimate_or_exit,
-    configure_global_api_concurrency,
-    df_to_html_table,
-    estimate_prompt_tokens_from_messages,
-    extract_subset_records,
-    html_paragraph,
-    html_plot_block,
-    html_section,
-    load_cases,
-    make_case_from_row,
-    preflight_check,
-    print_apriori_cost_estimate_report,
-    print_cumulative_report,
-    summarize_apriori_cost_estimate,
-    write_cost_tracker_json,
-    write_extractions,
-)
+from approach2.extraction import _is_missing_text, _true_dispersion_high_low
 from approach2.io_atomic import atomic_write_df as _atomic_write_df
-from approach2.io_atomic import safe_read_csv_if_exists as _safe_read_csv_if_exists
-from approach2.metrics import calibration_intercept_slope, rmse, safe_pearson, safe_spearman
-from approach2.models import LowInfoFeatureFilter, ModelSpec
-from approach2.text_utils import (
-    clean_phrase_for_display,
-    detect_negation,
-    detect_uncertainty,
-    make_slug,
-    normalize_text,
-    parse_jsonish,
-    resolve_default_api_workers,
-    resolve_default_ml_n_jobs,
-    resolve_default_parallel_modality_workers,
-)
 
 
 def ensure_case_id(df: pd.DataFrame) -> pd.DataFrame:
@@ -143,6 +49,65 @@ def _mri_missing_row_indices(raw_df: pd.DataFrame) -> set:
     return set(raw.loc[raw["preop_MRI_text"].apply(_is_missing_text), "row_index"].astype(int).tolist())
 
 
+def _pathology_usable_row_indices(raw_df: pd.DataFrame) -> set:
+    raw = _raw_df_with_row_index(raw_df)
+    if "path_report_text" not in raw.columns:
+        return set()
+    return set(raw.loc[~raw["path_report_text"].apply(_is_missing_text), "row_index"].astype(int).tolist())
+
+
+def has_usable_mri_report(raw_df: pd.DataFrame, row_index: int) -> bool:
+    """Return True when preop_MRI_text is present and non-placeholder."""
+    raw = _raw_df_with_row_index(raw_df)
+    if int(row_index) not in set(raw["row_index"].astype(int)):
+        return False
+    row = raw.loc[raw["row_index"].astype(int) == int(row_index)].iloc[0]
+    return not _is_missing_text(row.get("preop_MRI_text", ""))
+
+
+def has_usable_pathology_report(raw_df: pd.DataFrame, row_index: int) -> bool:
+    raw = _raw_df_with_row_index(raw_df)
+    if int(row_index) not in set(raw["row_index"].astype(int)):
+        return False
+    row = raw.loc[raw["row_index"].astype(int) == int(row_index)].iloc[0]
+    return not _is_missing_text(row.get("path_report_text", ""))
+
+
+def summarize_cohort_report_availability(
+    raw_df: pd.DataFrame,
+    target_df: pd.DataFrame,
+) -> Dict[str, Any]:
+    """Cohort-level counts for logging and saved summaries."""
+    eligible_rows = set(target_df["row_index"].astype(int).tolist())
+    mri_missing = _mri_missing_row_indices(raw_df) & eligible_rows
+    path_usable = _pathology_usable_row_indices(raw_df) & eligible_rows
+    mri_usable = eligible_rows - mri_missing
+    return {
+        "n_total_eligible_cases": len(eligible_rows),
+        "n_usable_pathology": len(path_usable),
+        "n_usable_mri": len(mri_usable),
+        "n_missing_mri": len(mri_missing),
+        "missing_mri_row_indices": sorted(mri_missing),
+        "missing_mri_case_ids": sorted(
+            target_df.loc[target_df["row_index"].astype(int).isin(mri_missing), "case_id"].astype(str).tolist()
+        ),
+    }
+
+
+def filter_cases_for_modality(
+    case_df: pd.DataFrame,
+    raw_df: pd.DataFrame,
+    dataset_key: str,
+) -> pd.DataFrame:
+    """Drop cases that cannot support the requested dataset/pathway."""
+    if not dataset_requires_mri_report(dataset_key) or len(case_df) == 0:
+        return case_df
+    missing_rows = _mri_missing_row_indices(raw_df)
+    if not missing_rows or "row_index" not in case_df.columns:
+        return case_df
+    return case_df[~case_df["row_index"].astype(int).isin(missing_rows)].copy().reset_index(drop=True)
+
+
 def dataset_requires_mri_report(dataset_key: str) -> bool:
     """Return True for datasets whose features cannot be interpreted without MRI text."""
     dataset_key = str(dataset_key)
@@ -159,28 +124,72 @@ def filter_missing_mri_for_dataset(
     raw_df: pd.DataFrame,
     dataset_key: str,
     split_id: str,
-) -> pd.DataFrame:
+    split_role: str = "all",
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """Drop MRI-missing cases from MRI-derived evaluations.
 
     Pathology-only evaluations intentionally keep these cases because every case is
-    expected to have a pathology report. MRI-only, combined MRI+pathology,
-    pathology-calibrated MRI, and teacher-student MRI evaluations are not valid
-    without the MRI report, so those rows are removed from both train and test
-    portions before model fitting.
+    expected to have a pathology report. Returns filtered dataframe and stats dict.
     """
+    stats: Dict[str, Any] = {
+        "split_id": split_id,
+        "dataset_key": dataset_key,
+        "split_role": split_role,
+        "n_before_filter": len(dataset_df),
+        "n_skipped_missing_mri": 0,
+        "n_after_filter": len(dataset_df),
+        "dropped_case_ids": [],
+        "drop_reason": "",
+    }
     if not dataset_requires_mri_report(dataset_key) or len(dataset_df) == 0:
-        return dataset_df
+        stats["drop_reason"] = "not_mri_required_dataset"
+        return dataset_df, stats
 
     missing_rows = _mri_missing_row_indices(raw_df)
     if not missing_rows or "row_index" not in dataset_df.columns:
-        return dataset_df
+        stats["drop_reason"] = "no_missing_mri_in_cohort"
+        return dataset_df, stats
 
     before = len(dataset_df)
-    out = dataset_df[~dataset_df["row_index"].astype(int).isin(missing_rows)].copy().reset_index(drop=True)
+    mask = dataset_df["row_index"].astype(int).isin(missing_rows)
+    dropped_ids = (
+        dataset_df.loc[mask, "case_id"].astype(str).tolist()
+        if "case_id" in dataset_df.columns else []
+    )
+    out = dataset_df[~mask].copy().reset_index(drop=True)
     skipped = before - len(out)
+    stats.update({
+        "n_before_filter": before,
+        "n_skipped_missing_mri": skipped,
+        "n_after_filter": len(out),
+        "dropped_case_ids": dropped_ids,
+        "drop_reason": "missing_preop_MRI_text",
+    })
     if skipped > 0:
         print(
-            f"[MISSING_MRI] split={split_id} dataset={dataset_key}: "
-            f"skipped {skipped} case rows with missing preop_MRI_text."
+            f"[MISSING_MRI] split={split_id} role={split_role} dataset={dataset_key}: "
+            f"skipped {skipped} case rows with missing preop_MRI_text "
+            f"(before={before} after={len(out)})."
         )
-    return out
+    return out, stats
+
+
+def write_mri_missing_case_summary(out_dir: str, summary_rows: Sequence[Dict[str, Any]]) -> str:
+    """Write per-split/per-dataset MRI skip counts to CSV."""
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "mri_missing_case_summary.csv")
+    if not summary_rows:
+        pd.DataFrame(columns=[
+            "split_id", "dataset_key", "split_role", "n_before_filter",
+            "n_skipped_missing_mri", "n_after_filter", "drop_reason", "dropped_case_ids",
+        ]).to_csv(path, index=False)
+    else:
+        rows = []
+        for row in summary_rows:
+            rec = dict(row)
+            ids = rec.pop("dropped_case_ids", [])
+            rec["dropped_case_ids"] = ";".join(map(str, ids))
+            rows.append(rec)
+        _atomic_write_df(pd.DataFrame(rows), path)
+    print(f"[SAVE] Wrote MRI-missing filter summary: {path}")
+    return path

@@ -112,7 +112,18 @@ from approach2.calibration import (
     compute_weighted_mri_lexicon,
     randomized_or_mismatched_path_matrix,
 )
-from approach2.eval_data import _mri_missing_row_indices, filter_missing_mri_for_dataset
+from approach2.checkpoint import (
+    build_split_resume_fingerprint,
+    load_split_manifest,
+    manifest_matches_split_membership,
+    validate_completed_checkpoint_tables,
+    validate_split_marker,
+)
+from approach2.eval_data import (
+    _mri_missing_row_indices,
+    filter_missing_mri_for_dataset,
+    has_usable_mri_report,
+)
 from approach2.features.matrices import (
     build_group_feature_matrix,
     build_phrase_feature_matrix,
@@ -136,6 +147,7 @@ from approach2.models_ml import (
     should_skip_model_fit,
 )
 from approach2.recoding import recode_cases_with_frozen_lexicon
+from approach2.splits import case_id_list_hash
 
 # -----------------------------
 # One modality / one outer split
@@ -228,6 +240,7 @@ def save_completed_split_checkpoint(
         "random_seed": getattr(args, "random_seed", None),
         "modalities": getattr(args, "modalities", []),
         "representations": getattr(args, "representations", []),
+        "fingerprint": build_split_resume_fingerprint(args, split_id),
     }
     marker_path = _split_resume_marker(split_dir)
     tmp_marker = f"{marker_path}.tmp.{os.getpid()}"
@@ -238,7 +251,13 @@ def save_completed_split_checkpoint(
     print(f"[RESUME] Wrote completed split checkpoint marker: {marker_path}")
 
 
-def load_completed_split_checkpoint(split_dir: str, split_id: str) -> Optional[Dict[str, pd.DataFrame]]:
+def load_completed_split_checkpoint(
+    split_dir: str,
+    split_id: str,
+    args: Optional[argparse.Namespace] = None,
+    outer_train_case_df: Optional[pd.DataFrame] = None,
+    outer_test_case_df: Optional[pd.DataFrame] = None,
+) -> Optional[Dict[str, pd.DataFrame]]:
     marker_path = _split_resume_marker(split_dir)
     if not os.path.exists(marker_path):
         return None
@@ -248,12 +267,31 @@ def load_completed_split_checkpoint(split_dir: str, split_id: str) -> Optional[D
         if str(marker.get("split_id")) != str(split_id):
             print(f"[RESUME] Marker split_id mismatch in {marker_path}; recomputing split.")
             return None
+        if args is not None:
+            ok, msg = validate_split_marker(marker, args, split_id)
+            if not ok:
+                print(f"[RESUME] Split checkpoint fingerprint mismatch for {split_id}: {msg}; recomputing.")
+                return None
+        manifest = load_split_manifest(split_dir, split_id)
+        if manifest and outer_train_case_df is not None and outer_test_case_df is not None:
+            ok, msg = manifest_matches_split_membership(
+                manifest,
+                outer_train_case_df["case_id"].astype(str).tolist(),
+                outer_test_case_df["case_id"].astype(str).tolist(),
+            )
+            if not ok:
+                print(f"[RESUME] Split manifest mismatch for {split_id}: {msg}; recomputing.")
+                return None
     except Exception as e:
         print(f"[RESUME] Could not read split marker {marker_path}: {e}; recomputing split.")
         return None
 
     paths = _split_resume_paths(split_dir)
     loaded = {key: _safe_read_csv_if_exists(path) for key, path in paths.items()}
+    ok, msg = validate_completed_checkpoint_tables(loaded, require_predictions=False)
+    if not ok:
+        print(f"[RESUME] Invalid completed checkpoint tables for {split_id}: {msg}; recomputing.")
+        return None
     print(f"[RESUME] Loaded completed split checkpoint for {split_id}: {marker_path}")
     return loaded
 
@@ -275,6 +313,15 @@ def run_outer_split_for_modality(
     )
 
     train_indices = outer_train_case_df["row_index"].astype(int).tolist()
+    if report_mode == "mri":
+        before = len(train_indices)
+        train_indices = [i for i in train_indices if has_usable_mri_report(raw_df, int(i))]
+        skipped = before - len(train_indices)
+        if skipped > 0:
+            print(
+                f"[MISSING_MRI] split={split_id} report_mode=mri extraction: "
+                f"excluding {skipped} outer-train cases without usable MRI (no API call)."
+            )
 
     t0 = time.time()
     train_records = extract_subset_records(
@@ -303,7 +350,7 @@ def run_outer_split_for_modality(
     train_phrase_csv = os.path.join(mode_dir, f"{split_id}_normalized_phrase_table_train_{report_mode}.csv")
     train_phrase_df.to_csv(train_phrase_csv, index=False)
 
-    phrase_freq_df, group_freq_df, stable_phrase_df, stable_group_df = build_stable_lexicon_from_training_extractions(
+    phrase_freq_df, group_freq_df, stable_phrase_df, stable_group_df, lexicon_meta = build_stable_lexicon_from_training_extractions(
         train_extractions_df=train_extractions_df,
         train_phrase_df=train_phrase_df,
         rediscovery_scheme=args.rediscovery_scheme,
@@ -314,7 +361,12 @@ def run_outer_split_for_modality(
         min_phrase_cases=args.min_phrase_cases,
         min_group_cases=args.min_group_cases,
         random_seed=args.random_seed + int(split_id.split("_")[-1]),
+        target_stable_features_per_modality=getattr(args, "target_stable_features_per_modality", 0),
     )
+    lexicon_meta_path = os.path.join(mode_dir, f"{split_id}_stable_lexicon_metadata_{report_mode}.json")
+    with open(lexicon_meta_path, "w", encoding="utf-8") as f:
+        json.dump(lexicon_meta, f, indent=2, sort_keys=True)
+        f.write("\n")
 
     phrase_freq_csv = os.path.join(mode_dir, f"{split_id}_phrase_rediscovery_frequency_{report_mode}.csv")
     group_freq_csv = os.path.join(mode_dir, f"{split_id}_group_rediscovery_frequency_{report_mode}.csv")
@@ -403,6 +455,7 @@ def _empty_split_result(split_id: str) -> Dict[str, List[pd.DataFrame]]:
         "hyper_tables": [],
         "coef_tables": [],
         "error_tables": [],
+        "mri_missing_summary_rows": [],
     }
 
 
@@ -437,8 +490,7 @@ def _extend_aggregate_tables(result: Dict[str, Any], aggregate_lists: Dict[str, 
 
 
 def _case_hash(values: Sequence[Any]) -> str:
-    payload = "\n".join(map(str, values))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    return case_id_list_hash(values)
 
 
 def write_split_provenance(
@@ -518,16 +570,40 @@ def run_one_outer_split(
     result = _empty_split_result(split_id)
 
     try:
-        if args.resume and args.skip_completed_splits:
-            loaded_split = load_completed_split_checkpoint(split_dir, split_id)
-            if loaded_split is not None:
-                print(f"[RESUME] Skipping completed {split_id}; loading per-split outputs into aggregate tables.")
-                return _result_from_loaded_checkpoint(split_id, loaded_split)
+        manifest = load_split_manifest(split_dir, split_id)
+        if manifest and args.resume:
+            from approach2.checkpoint import indices_from_manifest
+            m_train, m_test = indices_from_manifest(target_df, manifest)
+            if m_train and m_test:
+                train_pos = np.asarray(m_train, dtype=int)
+                test_pos = np.asarray(m_test, dtype=int)
+                print(f"[RESUME] Reconstructed {split_id} train/test membership from saved split manifest.")
 
         outer_train_case_df = target_df.iloc[train_pos].copy().reset_index(drop=True)
         outer_test_case_df = target_df.iloc[test_pos].copy().reset_index(drop=True)
         outer_train_case_df["split_role"] = "train"
         outer_test_case_df["split_role"] = "test"
+
+        train_ids_set = set(outer_train_case_df["case_id"].astype(str))
+        test_ids_set = set(outer_test_case_df["case_id"].astype(str))
+        overlap_ids = train_ids_set & test_ids_set
+        if overlap_ids:
+            raise ValueError(
+                f"{split_id}: train/test case_id overlap detected ({len(overlap_ids)} cases)."
+            )
+
+        if args.resume and args.skip_completed_splits:
+            loaded_split = load_completed_split_checkpoint(
+                split_dir,
+                split_id,
+                args=args,
+                outer_train_case_df=outer_train_case_df,
+                outer_test_case_df=outer_test_case_df,
+            )
+            if loaded_split is not None:
+                print(f"[RESUME] Skipping completed {split_id}; loading per-split outputs into aggregate tables.")
+                return _result_from_loaded_checkpoint(split_id, loaded_split)
+
         write_split_provenance(split_dir, split_id, outer_train_case_df, outer_test_case_df, args)
 
         print("=" * 100)
@@ -601,9 +677,10 @@ def run_one_outer_split(
 
         if args.enable_pathology_calibration:
             print(f"[CALIBRATION] {split_id}: computing MRI↔pathology reliability on outer-training cases only.")
-            mri_group_matrix = filter_missing_mri_for_dataset(
-                modality_results["mri"]["group_matrix_df"], raw_df, "mri_pathcal_weighted", split_id
+            mri_group_matrix, mri_filter_stats = filter_missing_mri_for_dataset(
+                modality_results["mri"]["group_matrix_df"], raw_df, "mri_pathcal_weighted", split_id, "all"
             )
+            result["mri_missing_summary_rows"].append(mri_filter_stats)
             path_group_matrix = modality_results["path"]["group_matrix_df"]
             mri_available_train_df = outer_train_case_df[
                 ~outer_train_case_df["row_index"].astype(int).isin(_mri_missing_row_indices(raw_df))
@@ -702,7 +779,18 @@ def run_one_outer_split(
                     ], axis=1)
 
                 dataset_df = dataset_df.drop_duplicates(subset=["case_id", "row_index"]).reset_index(drop=True)
-                dataset_df = filter_missing_mri_for_dataset(dataset_df, raw_df, dataset_key, split_id)
+                train_pre = dataset_df[dataset_df["case_id"].isin(outer_train_case_df["case_id"])].copy()
+                test_pre = dataset_df[dataset_df["case_id"].isin(outer_test_case_df["case_id"])].copy()
+                dataset_df, filter_stats = filter_missing_mri_for_dataset(
+                    dataset_df, raw_df, dataset_key, split_id, "all"
+                )
+                _, train_stats = filter_missing_mri_for_dataset(
+                    train_pre, raw_df, dataset_key, split_id, "train"
+                )
+                _, test_stats = filter_missing_mri_for_dataset(
+                    test_pre, raw_df, dataset_key, split_id, "test"
+                )
+                result["mri_missing_summary_rows"].extend([filter_stats, train_stats, test_stats])
                 dataset_df["split_id"] = split_id
 
                 if len(feature_cols) == 0:
@@ -810,7 +898,10 @@ def run_one_outer_split(
                 X_mri_all, mri_cols = get_representation_matrix(mri_df, representation)
                 X_path_all, path_cols = get_representation_matrix(path_df, representation)
                 mri_model_df = pd.concat([mri_df[["case_id", "row_index", "dispersion_true", "dispersion_true_high_low", "relapse_true"]], X_mri_all], axis=1)
-                mri_model_df = filter_missing_mri_for_dataset(mri_model_df, raw_df, "mri_teacher_student", split_id)
+                mri_model_df, ts_filter_stats = filter_missing_mri_for_dataset(
+                    mri_model_df, raw_df, "mri_teacher_student", split_id, "all"
+                )
+                result["mri_missing_summary_rows"].append(ts_filter_stats)
                 path_model_df = pd.concat([path_df[["case_id", "row_index", "dispersion_true", "dispersion_true_high_low", "relapse_true"]], X_path_all], axis=1)
                 train_mask = mri_model_df["case_id"].isin(outer_train_case_df["case_id"])
                 test_mask = mri_model_df["case_id"].isin(outer_test_case_df["case_id"])
@@ -837,7 +928,7 @@ def run_one_outer_split(
                     X_mri_test = test_mri[mri_cols]
                     X_path_train = train_pair[path_cols]
                     path_concept_train = train_pair[["case_id", "row_index"] + path_cols].copy()
-                    reg_pred, cls_pred, ts_extra = fit_teacher_student_mri_model(
+                    reg_pred, cls_pred, relapse_pred, ts_extra = fit_teacher_student_mri_model(
                         X_mri_train=X_mri_train,
                         X_mri_test=X_mri_test,
                         X_path_train=X_path_train,
@@ -850,11 +941,18 @@ def run_one_outer_split(
                         lambda_dispersion=args.teacher_student_lambda_dispersion,
                         lambda_teacher_score=args.teacher_student_lambda_teacher_score,
                         lambda_path_concepts=args.teacher_student_lambda_path_concepts,
+                        y_train_relapse=train_mri["relapse_true"],
+                        y_test_relapse=test_mri["relapse_true"],
                     )
-                    for task_type, pred_df, target_name, target_col in [
+                    pred_specs = [
                         ("regression", reg_pred, TARGET_NAME_DISPERSION_SCORE, "dispersion_true"),
                         ("classification", cls_pred, TARGET_NAME_DISPERSION_HIGH_LOW, "dispersion_true_high_low"),
-                    ]:
+                    ]
+                    if relapse_pred is not None:
+                        pred_specs.append(
+                            ("classification", relapse_pred, TARGET_NAME_RELAPSE_STATUS, "relapse_true")
+                        )
+                    for task_type, pred_df, target_name, target_col in pred_specs:
                         meta_pred = test_mri[["case_id", "row_index"]].copy()
                         meta_pred["split_id"] = split_id
                         meta_pred["dataset_key"] = "mri_teacher_student"

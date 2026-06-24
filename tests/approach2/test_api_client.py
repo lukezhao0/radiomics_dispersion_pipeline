@@ -5,6 +5,28 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 
+def test_api_client_passes_temperature_in_payload() -> None:
+    import approach2.api.client as client_mod
+
+    mock_response = MagicMock()
+    mock_response.ok = True
+    mock_response.json.return_value = {
+        "model": "gpt-5-nano",
+        "choices": [{"message": {"content": "OK"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "prompt_tokens_details": {"cached_tokens": 0}, "completion_tokens_details": {"reasoning_tokens": 0}},
+    }
+    captured: dict = {}
+
+    def _capture_post(url, headers, json, timeout):
+        captured.update(json)
+        return mock_response
+
+    with patch.object(client_mod.requests, "post", side_effect=_capture_post):
+        client_mod._post_chat_completion([{"role": "user", "content": "hi"}], temperature=0.0)
+
+    assert captured.get("temperature") == 0.0
+
+
 def test_call_securegpt_chat_resolves_token_estimate() -> None:
     # Load through the same entry path as the nested CLI (avoids direct client import cycle).
     import approach2.extraction  # noqa: F401

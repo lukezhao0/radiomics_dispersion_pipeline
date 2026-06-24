@@ -111,6 +111,40 @@ from approach2.splits import build_rediscovery_subsplits
 # Rediscovery and frozen lexicon
 # -----------------------------
 
+
+def cap_stable_phrase_lexicon(
+    stable_phrase_df: pd.DataFrame,
+    target_count: int,
+    report_mode: str,
+) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    """Select top-ranked stable phrases up to target_count (train-only ranking)."""
+    meta: Dict[str, Any] = {
+        "report_mode": report_mode,
+        "target_stable_features": int(target_count),
+        "n_stable_before_cap": len(stable_phrase_df),
+        "n_stable_after_cap": len(stable_phrase_df),
+        "cap_applied": False,
+    }
+    if target_count <= 0 or len(stable_phrase_df) <= target_count:
+        if target_count > 0 and len(stable_phrase_df) < target_count:
+            meta["note"] = "fewer_stable_features_than_target_using_all_available"
+        return stable_phrase_df.copy(), meta
+
+    ranked = stable_phrase_df.sort_values(
+        ["selection_frequency", "mean_support_cases", "n_rows"],
+        ascending=[False, False, False],
+    ).head(int(target_count)).copy().reset_index(drop=True)
+    meta.update({
+        "n_stable_after_cap": len(ranked),
+        "cap_applied": True,
+    })
+    print(
+        f"[REDISCOVERY] Capped stable phrases for {report_mode}: "
+        f"target={target_count} before={meta['n_stable_before_cap']} after={len(ranked)}"
+    )
+    return ranked, meta
+
+
 def build_stable_lexicon_from_training_extractions(
     train_extractions_df: pd.DataFrame,
     train_phrase_df: pd.DataFrame,
@@ -122,7 +156,8 @@ def build_stable_lexicon_from_training_extractions(
     min_phrase_cases: int,
     min_group_cases: int,
     random_seed: int,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    target_stable_features_per_modality: int = 0,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, Any]]:
     case_meta = (
         train_extractions_df[["case_id", "dispersion_true_high_low"]]
         .drop_duplicates()
@@ -146,7 +181,11 @@ def build_stable_lexicon_from_training_extractions(
     if len(train_phrase_df) == 0:
         empty_phrase = pd.DataFrame(columns=["phrase_slug", "quote_norm", "canonical_group", "n_rows", "selected_count", "mean_support_cases", "selection_frequency", "stable"])
         empty_group = pd.DataFrame(columns=["canonical_group", "n_rows", "selected_count", "mean_support_cases", "selection_frequency", "stable"])
-        return empty_phrase, empty_group, empty_phrase.copy(), empty_group.copy()
+        return empty_phrase, empty_group, empty_phrase.copy(), empty_group.copy(), {
+            "stability_threshold": stability_threshold,
+            "n_stable_phrases": 0,
+            "n_stable_groups": 0,
+        }
 
     phrase_counts = Counter()
     group_counts = Counter()
@@ -228,6 +267,23 @@ def build_stable_lexicon_from_training_extractions(
     stable_phrase_df = phrase_freq_df[phrase_freq_df["stable"] == 1].copy()
     stable_group_df = group_freq_df[group_freq_df["stable"] == 1].copy()
 
+    cap_meta: Dict[str, Any] = {}
+    if target_stable_features_per_modality > 0:
+        stable_phrase_df, cap_meta = cap_stable_phrase_lexicon(
+            stable_phrase_df,
+            target_count=target_stable_features_per_modality,
+            report_mode=str(train_extractions_df["report_mode"].iloc[0]) if "report_mode" in train_extractions_df.columns and len(train_extractions_df) else "unknown",
+        )
+
+    lexicon_meta = {
+        "stability_threshold": stability_threshold,
+        "target_stable_features_per_modality": int(target_stable_features_per_modality),
+        "n_stable_phrases": len(stable_phrase_df),
+        "n_stable_groups": len(stable_group_df),
+        "n_rediscovery_subsplits": n_subsplits,
+        **cap_meta,
+    }
+
     print(
         f"[REDISCOVERY] Stable lexicon summary: "
         f"n_stable_phrases={len(stable_phrase_df)} "
@@ -235,4 +291,4 @@ def build_stable_lexicon_from_training_extractions(
         f"threshold={stability_threshold:.3f}"
     )
 
-    return phrase_freq_df, group_freq_df, stable_phrase_df, stable_group_df
+    return phrase_freq_df, group_freq_df, stable_phrase_df, stable_group_df, lexicon_meta

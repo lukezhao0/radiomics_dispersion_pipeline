@@ -46,23 +46,12 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import LinearSVR, SVC
 
 from approach2.config import (
-    AMBIGUITY_GROUPS,
-    CANONICAL_GROUP_PATTERNS,
-    COEF_ZERO_TOL,
     DEFAULT_BOOTSTRAP_N,
-    DISPERSION_TRUE_HIGH_THRESHOLD,
-    DISTRIBUTION_GROUPS,
-    EPS,
-    INNER_CV_MAX_SPLITS,
-    META_COLS,
-    NEGATION_PATTERNS,
+    DEFAULT_STABILITY_THRESHOLD,
     RANDOM_SEED,
-    SHARED_CONCEPT_ONTOLOGY,
-    SPATIAL_MORPH_RESPONSE_GROUPS,
     TARGET_NAME_DISPERSION_HIGH_LOW,
     TARGET_NAME_DISPERSION_SCORE,
     TARGET_NAME_RELAPSE_STATUS,
-    UNCERTAINTY_PATTERNS,
 )
 from approach2.extraction import (
     MAX_TOKENS,
@@ -106,13 +95,13 @@ from approach2.text_utils import (
     resolve_default_parallel_modality_workers,
 )
 
-from approach2.eval_data import ensure_case_id, get_target_frame
+from approach2.eval_data import (
+    ensure_case_id,
+    get_target_frame,
+    summarize_cohort_report_availability,
+    write_mri_missing_case_summary,
+)
 from approach2.evaluation.plots import (
-    plot_classification_comparison,
-    plot_relapse_curves,
-    plot_relapse_metric_comparison,
-    plot_regression_correlation_comparison,
-    plot_regression_error_comparison,
     rank_features_across_models,
     summarize_coefficient_sign_stability,
 )
@@ -128,12 +117,11 @@ from approach2.orchestration import (
     run_one_outer_split,
     write_failed_split_marker,
 )
-from approach2.splits import build_outer_splits
+from approach2.splits import build_outer_splits, log_outer_split_summary, validate_outer_splits
+from approach2.api.cost import write_apriori_cost_estimate_json
+from approach2.extraction.config import TEMPERATURE as DEFAULT_LLM_TEMPERATURE
 from approach2.reports import (
-    generate_error_analysis,
-    generate_interpretability_report,
-    generate_performance_plots,
-    generate_results_report,
+    generate_all_reports,
     pathology_metrics_on_mri_complete,
     permutation_test_relapse_metrics,
     regenerate_reports_and_plots,
@@ -222,7 +210,8 @@ def main() -> None:
     parser.add_argument("--rediscovery-repeats", type=int, default=25, help="Number of rediscovery Monte Carlo resamples when --rediscovery-scheme repeated_mc.")
     parser.add_argument("--rediscovery-test-frac", type=float, default=0.20, help="Test fraction for rediscovery Monte Carlo splits.")
     parser.add_argument("--rediscovery-folds", type=int, default=5, help="Number of folds when --rediscovery-scheme stratified_kfold.")
-    parser.add_argument("--stability-threshold", type=float, default=0.60, help="Selection-frequency threshold used to freeze the outer-split stable lexicon.")
+    parser.add_argument("--stability-threshold", type=float, default=DEFAULT_STABILITY_THRESHOLD, help="Selection-frequency threshold used to freeze the outer-split stable lexicon (default more permissive than legacy 0.60).")
+    parser.add_argument("--target-stable-features-per-modality", type=int, default=0, help="Cap final stable phrase features per modality to this count (0 = no cap, use all stable). Ranking uses train-only selection frequency.")
     parser.add_argument("--min-phrase-cases", type=int, default=2, help="Minimum number of training cases in a rediscovery subset required for a phrase to count as rediscovered.")
     parser.add_argument("--min-group-cases", type=int, default=2, help="Minimum number of training cases in a rediscovery subset required for a group to count as rediscovered.")
     parser.add_argument("--modalities", nargs="+", default=["mri", "path", "combined"], choices=["mri", "path", "combined"], help="Modalities to evaluate.")
@@ -233,6 +222,12 @@ def main() -> None:
     parser.add_argument("--parallel-modality-workers", type=int, default=2, help="Maximum number of modalities to process concurrently within each outer split.")
     parser.add_argument("--ml-n-jobs", type=int, default=2, help="Number of local CPU workers for GridSearchCV in the classical ML stage after fold/modality coordination.")
     parser.add_argument("--random-seed", type=int, default=RANDOM_SEED, help="Base random seed.")
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=DEFAULT_LLM_TEMPERATURE,
+        help="LLM sampling temperature for extraction API calls (default 0.0 for deterministic outputs).",
+    )
     parser.add_argument(
         "--no-resume",
         dest="resume",
@@ -286,6 +281,9 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    import approach2.extraction.config as extraction_config
+    extraction_config.TEMPERATURE = float(args.temperature)
+
     args.max_api_workers = resolve_default_api_workers(args.max_api_workers)
     args.parallel_modality_workers = resolve_default_parallel_modality_workers(args.parallel_modality_workers)
     args.ml_n_jobs = resolve_default_ml_n_jobs(args.ml_n_jobs)
@@ -318,11 +316,24 @@ def main() -> None:
                 f"parallel_modality_workers={args.parallel_modality_workers} "
                 f"max_api_workers_global={args.max_api_workers} ml_n_jobs={args.ml_n_jobs}"
             )
+            print(
+                f"[CONFIG] outer_scheme={args.outer_scheme} outer_repeats={args.outer_repeats} "
+                f"outer_test_frac={args.outer_test_frac} outer_folds={args.outer_folds} "
+                f"stability_threshold={args.stability_threshold} "
+                f"target_stable_features_per_modality={args.target_stable_features_per_modality} "
+                f"temperature={args.temperature}"
+            )
             print(f"[LOAD] Reading raw CSV: {args.csv_path}")
             raw_df = load_cases(args.csv_path)
             raw_df = ensure_case_id(raw_df)
             target_df = get_target_frame(raw_df)
-            print(f"[LOAD] Loaded target-eligible cases={len(target_df)}")
+            cohort_flags = summarize_cohort_report_availability(raw_df, target_df)
+            print(
+                f"[LOAD] Loaded target-eligible cases={cohort_flags['n_total_eligible_cases']} "
+                f"usable_pathology={cohort_flags['n_usable_pathology']} "
+                f"usable_mri={cohort_flags['n_usable_mri']} "
+                f"missing_mri={cohort_flags['n_missing_mri']}"
+            )
 
             outer_splits = build_outer_splits(
                 y_binary=target_df["dispersion_true_high_low"].astype(int).values,
@@ -332,10 +343,21 @@ def main() -> None:
                 test_frac=args.outer_test_frac,
                 n_folds=args.outer_folds,
             )
+            validate_outer_splits(outer_splits, args.outer_scheme, len(target_df))
+            log_outer_split_summary(
+                outer_splits,
+                target_df["dispersion_true_high_low"].astype(int).values,
+                args.outer_scheme,
+                args.outer_repeats,
+                args.outer_test_frac,
+                args.outer_folds,
+            )
 
             estimate = estimate_nested_pipeline_llm_cost(raw_df, target_df, outer_splits, args)
+            estimate["temperature"] = float(args.temperature)
             print_apriori_cost_estimate_report(estimate, label="nested outer-training extraction pipeline")
             print(f"[A-PRIORI] n_outer_splits={estimate['n_outer_splits']} completed_splits_skipped={estimate['n_completed_splits_skipped_in_estimate']} planned_report_modes={estimate['planned_report_modes']}")
+            write_apriori_cost_estimate_json(args.out_dir, estimate, label="nested outer-training extraction pipeline")
             confirm_cost_estimate_or_exit(estimate, assume_yes=args.yes)
 
             preflight_check()
@@ -363,6 +385,7 @@ def main() -> None:
             hyper_tables: List[pd.DataFrame] = []
             coef_tables: List[pd.DataFrame] = []
             error_tables: List[pd.DataFrame] = []
+            mri_missing_summary_rows: List[Dict[str, Any]] = []
 
             model_specs = get_model_specs()
             standard_representations = [r for r in args.representations if not r.startswith("weighted")]
@@ -422,6 +445,9 @@ def main() -> None:
                             split_result = _empty_split_result(split_id)
                             split_result["error_tables"].append(write_failed_split_marker(split_dir, split_id, e))
                         _extend_aggregate_tables(split_result, aggregate_lists)
+                        for row in split_result.get("mri_missing_summary_rows", []):
+                            if isinstance(row, dict):
+                                mri_missing_summary_rows.append(row)
                         print(f"[OUTER_PARALLEL] Collected results for {split_id}.")
             else:
                 print("[OUTER_PARALLEL] Fold-level parallelism disabled; running outer folds sequentially.")
@@ -438,6 +464,27 @@ def main() -> None:
                         args=args,
                     )
                     _extend_aggregate_tables(split_result, aggregate_lists)
+
+                    _extend_aggregate_tables(split_result, aggregate_lists)
+                    for row in split_result.get("mri_missing_summary_rows", []):
+                        if isinstance(row, dict):
+                            mri_missing_summary_rows.append(row)
+
+            cohort_row = {
+                "split_id": "cohort_overall",
+                "dataset_key": "all",
+                "split_role": "eligible",
+                "n_before_filter": cohort_flags["n_total_eligible_cases"],
+                "n_skipped_missing_mri": cohort_flags["n_missing_mri"],
+                "n_after_filter": cohort_flags["n_usable_mri"],
+                "drop_reason": "cohort_summary",
+                "dropped_case_ids": cohort_flags["missing_mri_case_ids"],
+            }
+            mri_missing_summary_rows.append(cohort_row)
+            write_mri_missing_case_summary(args.out_dir, mri_missing_summary_rows)
+            with open(os.path.join(args.out_dir, "cohort_report_availability_summary.json"), "w", encoding="utf-8") as f:
+                json.dump(cohort_flags, f, indent=2, sort_keys=True)
+                f.write("\n")
 
             # Save aggregate lexicon/calibration/audit summaries.
             if all_phrase_freq_tables:
@@ -547,58 +594,12 @@ def main() -> None:
             if len(path_mri_subset_metrics_df):
                 path_mri_subset_metrics_df.to_csv(os.path.join(args.out_dir, "pathology_only_mri_complete_subset_metrics.csv"), index=False)
 
-            error_case_df, error_md = generate_error_analysis(pred_case_all, metrics_df, raw_df, args.out_dir)
-            if error_md:
-                print(f"[SAVE] Wrote missed-case error analysis: {error_md}")
-
-            interp_md, interp_html = generate_interpretability_report(
-                out_dir=args.out_dir,
-                coef_all=coef_all,
-                sign_stability_df=sign_stability_df,
-                phrase_freq_all=phrase_freq_all,
-                group_freq_all=group_freq_all,
-                stable_phrase_summary=stable_phrase_summary,
-                stable_group_summary=stable_group_summary,
-                reliability_all=reliability_all,
-                weighted_lexicon_all=weighted_lexicon_all,
-            )
-            print(f"[SAVE] Wrote interpretability reports: {interp_md}, {interp_html}")
-
-            cls_plot_png = os.path.join(args.out_dir, "nested_classification_comparison.png")
-            relapse_auroc_plot_png = os.path.join(args.out_dir, "nested_relapse_auroc_comparison.png")
-            relapse_auprc_plot_png = os.path.join(args.out_dir, "nested_relapse_auprc_comparison.png")
-            relapse_f1_plot_png = os.path.join(args.out_dir, "nested_relapse_f1_comparison.png")
-            relapse_brier_plot_png = os.path.join(args.out_dir, "nested_relapse_brier_comparison.png")
-            reg_err_plot_png = os.path.join(args.out_dir, "nested_regression_error_comparison.png")
-            reg_corr_plot_png = os.path.join(args.out_dir, "nested_regression_correlation_comparison.png")
-            plot_classification_comparison(metrics_df, cls_plot_png)
-            plot_relapse_metric_comparison(metrics_df, relapse_auroc_plot_png, "auroc")
-            plot_relapse_metric_comparison(metrics_df, relapse_auprc_plot_png, "auprc")
-            plot_relapse_metric_comparison(metrics_df, relapse_f1_plot_png, "f1")
-            plot_relapse_metric_comparison(metrics_df, relapse_brier_plot_png, "brier")
-            plot_relapse_curves(pred_case_all, metrics_df, args.out_dir)
-            plot_regression_error_comparison(metrics_df, reg_err_plot_png)
-            plot_regression_correlation_comparison(metrics_df, reg_corr_plot_png)
-            report_plot_paths = generate_performance_plots(pred_case_all, metrics_df, args.out_dir)
-            for pth in [cls_plot_png, relapse_auroc_plot_png, relapse_auprc_plot_png, relapse_f1_plot_png, relapse_brier_plot_png, reg_err_plot_png, reg_corr_plot_png]:
-                if os.path.exists(pth):
-                    report_plot_paths.append(pth)
-            results_md, results_html = generate_results_report(
-                out_dir=args.out_dir,
-                metrics_df=metrics_df,
-                pred_case_df=pred_case_all,
-                fold_results_all=fold_results_all,
-                relapse_balance_df=relapse_balance_df,
-                permutation_df=permutation_df,
-                plot_paths=report_plot_paths,
-                path_mri_subset_metrics_df=path_mri_subset_metrics_df,
-            )
-            print(f"[SAVE] Wrote automated results reports: {results_md}, {results_html}")
-
             summary_txt = os.path.join(args.out_dir, "nested_resampling_summary.txt")
             summary = summarize_metrics(metrics_df)
             with open(summary_txt, "w", encoding="utf-8") as f:
                 f.write(summary)
+
+            generate_all_reports(args.out_dir, csv_path=args.csv_path, force=True)
 
             print(f"[SAVE] Wrote summary text: {summary_txt}")
             print("\n" + summary)

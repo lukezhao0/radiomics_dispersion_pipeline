@@ -266,6 +266,162 @@ def _safe_savefig(path: str) -> None:
     _save_figure(path)
 
 
+def _read_json_if_exists(path: str) -> Dict[str, Any]:
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _load_outer_split_summaries(out_dir: str) -> pd.DataFrame:
+    rows: List[Dict[str, Any]] = []
+    splits_root = os.path.join(out_dir, "outer_splits")
+    if not os.path.isdir(splits_root):
+        return pd.DataFrame()
+    for split_name in sorted(os.listdir(splits_root)):
+        split_dir = os.path.join(splits_root, split_name)
+        if not os.path.isdir(split_dir):
+            continue
+        manifest_path = os.path.join(split_dir, f"{split_name}_split_manifest.json")
+        manifest = _read_json_if_exists(manifest_path)
+        prov_path = os.path.join(split_dir, f"{split_name}_split_provenance.csv")
+        prov_n = 0
+        if os.path.isfile(prov_path):
+            with contextlib.suppress(Exception):
+                prov_n = len(pd.read_csv(prov_path))
+        rows.append({
+            "split_id": split_name,
+            "n_train": manifest.get("n_train", manifest.get("train_n", np.nan)),
+            "n_test": manifest.get("n_test", manifest.get("test_n", np.nan)),
+            "provenance_rows": prov_n,
+            "checkpoint_status": (
+                "completed" if os.path.isfile(os.path.join(split_dir, "_split_resume_checkpoint", "COMPLETED.json"))
+                else ("failed" if os.path.isfile(os.path.join(split_dir, "_split_resume_checkpoint", "FAILED.json")) else "unknown")
+            ),
+        })
+    return pd.DataFrame(rows)
+
+
+def _load_run_metadata(out_dir: str) -> Dict[str, Any]:
+    meta: Dict[str, Any] = {}
+    for key, fname in [
+        ("cost_apriori", "llm_cost_estimate_apriori.json"),
+        ("cost_post_run", "llm_token_cost_report.json"),
+        ("cohort_availability", "cohort_report_availability_summary.json"),
+    ]:
+        meta[key] = _read_json_if_exists(os.path.join(out_dir, fname))
+    mri_missing_path = os.path.join(out_dir, "mri_missing_case_summary.csv")
+    meta["mri_missing_df"] = _safe_read_csv_if_exists(mri_missing_path)
+    summary_path = os.path.join(out_dir, "nested_resampling_summary.txt")
+    if os.path.isfile(summary_path):
+        with open(summary_path, "r", encoding="utf-8") as f:
+            meta["nested_summary_text"] = f.read().strip()
+    else:
+        meta["nested_summary_text"] = ""
+    meta["split_errors_df"] = _safe_read_csv_if_exists(os.path.join(out_dir, "nested_outer_split_errors.csv"))
+    meta["split_summary_df"] = _load_outer_split_summaries(out_dir)
+    return meta
+
+
+def _summarize_label_distributions(pred_case_df: pd.DataFrame) -> pd.DataFrame:
+    if pred_case_df is None or len(pred_case_df) == 0:
+        return pd.DataFrame()
+    rows: List[Dict[str, Any]] = []
+    dedup = pred_case_df.drop_duplicates(subset=["case_id", "target_name", "dataset_key", "representation", "model_key"], keep="first")
+    for target_name, sub in dedup.groupby("target_name"):
+        task = str(sub["task_type"].iloc[0]) if "task_type" in sub.columns else "unknown"
+        y = sub["y_true"]
+        if task == "regression":
+            yy = pd.to_numeric(y, errors="coerce").dropna()
+            rows.append({
+                "target_name": target_name,
+                "task_type": task,
+                "n_cases": int(len(yy)),
+                "mean": float(yy.mean()) if len(yy) else np.nan,
+                "std": float(yy.std(ddof=0)) if len(yy) else np.nan,
+                "min": float(yy.min()) if len(yy) else np.nan,
+                "max": float(yy.max()) if len(yy) else np.nan,
+            })
+        else:
+            yy = pd.to_numeric(y, errors="coerce").dropna()
+            n_pos = int((yy == 1).sum())
+            n_neg = int((yy == 0).sum())
+            rows.append({
+                "target_name": target_name,
+                "task_type": task,
+                "n_cases": int(len(yy)),
+                "positive": n_pos,
+                "negative": n_neg,
+                "prevalence": float(n_pos / len(yy)) if len(yy) else np.nan,
+            })
+    return pd.DataFrame(rows)
+
+
+def _plot_pathway_modality_comparison(metrics_df: pd.DataFrame, out_png: str) -> bool:
+    if metrics_df is None or len(metrics_df) == 0:
+        return False
+    panels: List[Tuple[str, pd.DataFrame, str, bool]] = []
+    for task_type, target_name, metric, ascending in [
+        ("regression", TARGET_NAME_DISPERSION_SCORE, "mae", True),
+        ("classification", TARGET_NAME_DISPERSION_HIGH_LOW, "auroc", False),
+        ("classification", TARGET_NAME_RELAPSE_STATUS, "auroc", False),
+    ]:
+        sub = metrics_df[(metrics_df["task_type"] == task_type) & (metrics_df["target_name"] == target_name)].copy()
+        if len(sub) == 0 or metric not in sub.columns:
+            continue
+        sub = sub.sort_values(metric, ascending=ascending).head(20)
+        sub["label"] = sub["dataset_key"].astype(str) + " | " + sub["model_key"].astype(str)
+        panels.append((f"{target_name} ({metric})", sub, metric, ascending))
+    if not panels:
+        return False
+    fig_h = max(4.0 * len(panels), 6.0)
+    fig, axes = plt.subplots(len(panels), 1, figsize=(11, fig_h))
+    if len(panels) == 1:
+        axes = [axes]
+    for ax, (title, sub, metric, ascending) in zip(axes, panels):
+        ypos = np.arange(len(sub))
+        ax.barh(ypos, sub[metric].astype(float), color="#4C78A8")
+        ax.set_yticks(ypos)
+        ax.set_yticklabels(sub["label"], fontsize=7)
+        ax.invert_yaxis()
+        ax.set_xlabel(metric.upper())
+        ax.set_title(title)
+    fig.suptitle("Pathway and modality comparison", y=1.01, fontsize=12)
+    fig.tight_layout()
+    _save_figure(out_png, fig)
+    return True
+
+
+def _plot_per_fold_regression_mae(fold_results_all: pd.DataFrame, metrics_df: pd.DataFrame, out_png: str) -> bool:
+    if fold_results_all is None or len(fold_results_all) == 0:
+        return False
+    best = _best_row(metrics_df, "regression", TARGET_NAME_DISPERSION_SCORE)
+    if best is None:
+        return False
+    sub = fold_results_all[
+        (fold_results_all["task_type"] == "regression")
+        & (fold_results_all["target_name"] == TARGET_NAME_DISPERSION_SCORE)
+        & (fold_results_all["dataset_key"].astype(str) == str(best["dataset_key"]))
+        & (fold_results_all["representation"].astype(str) == str(best["representation"]))
+        & (fold_results_all["model_key"].astype(str) == str(best["model_key"]))
+    ].copy()
+    if len(sub) == 0 or "mae" not in sub.columns or "split_id" not in sub.columns:
+        return False
+    sub = sub.sort_values("split_id")
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    ax.bar(sub["split_id"].astype(str), sub["mae"].astype(float))
+    ax.set_ylabel("MAE")
+    ax.set_xlabel("Outer split")
+    ax.set_title(f"Per-fold MAE: {best['dataset_key']} | {best['model_key']}")
+    plt.xticks(rotation=45, ha="right")
+    _save_figure(out_png, fig)
+    return True
+
+
 def generate_performance_plots(pred_case_df: pd.DataFrame, metrics_df: pd.DataFrame, out_dir: str) -> List[str]:
     plot_dir = os.path.join(out_dir, "report_plots")
     os.makedirs(plot_dir, exist_ok=True)
@@ -304,6 +460,19 @@ def generate_performance_plots(pred_case_df: pd.DataFrame, metrics_df: pd.DataFr
             plt.ylabel("Residual: predicted - true")
             plt.title("Top regression model residuals")
             path = os.path.join(plot_dir, "top_regression_residuals.png")
+            _safe_savefig(path); paths.append(path)
+
+            ranks_true = y_true.rank(method="average")
+            ranks_pred = y_pred.rank(method="average")
+            rho, _ = safe_spearman(y_true.values, y_pred.values)
+            plt.figure(figsize=(6, 6))
+            plt.scatter(ranks_true, ranks_pred, alpha=0.75)
+            lo, hi = 0.5, float(max(ranks_true.max(), ranks_pred.max(), 1.0)) + 0.5
+            plt.plot([lo, hi], [lo, hi], linestyle="--", color="gray")
+            plt.xlabel("Rank of true dispersion score")
+            plt.ylabel("Rank of predicted dispersion score")
+            plt.title(f"Top regression model: rank plot (Spearman rho={rho:.3f})")
+            path = os.path.join(plot_dir, "top_regression_spearman_rank.png")
             _safe_savefig(path); paths.append(path)
 
     for target_name in [TARGET_NAME_DISPERSION_HIGH_LOW, TARGET_NAME_RELAPSE_STATUS]:
@@ -421,6 +590,11 @@ def generate_performance_plots(pred_case_df: pd.DataFrame, metrics_df: pd.DataFr
             path = os.path.join(plot_dir, "bootstrap_ci_primary_metrics.png")
             _save_figure(path, fig)
             paths.append(path)
+
+    pathway_png = os.path.join(plot_dir, "pathway_modality_comparison.png")
+    if _plot_pathway_modality_comparison(metrics_df, pathway_png):
+        paths.append(pathway_png)
+
     return paths
 
 
@@ -499,12 +673,16 @@ def generate_error_analysis(pred_case_df: pd.DataFrame, metrics_df: pd.DataFrame
     rows: List[Dict[str, Any]] = []
     if pred_case_df is None or len(pred_case_df) == 0 or metrics_df is None or len(metrics_df) == 0:
         return pd.DataFrame(), ""
-    raw = _raw_df_with_row_index(raw_df)
-    raw_flags = raw[["case_id", "row_index", "preop_MRI_text", "path_report_text"]].copy()
-    raw_flags["mri_report_missing"] = raw_flags["preop_MRI_text"].apply(_is_missing_text).astype(int)
-    raw_flags["path_report_missing"] = raw_flags["path_report_text"].apply(_is_missing_text).astype(int)
-    raw_flags["mri_report_chars"] = raw_flags["preop_MRI_text"].fillna("").astype(str).str.len()
-    raw_flags = raw_flags.drop(columns=["preop_MRI_text", "path_report_text"])
+    raw_flags = pd.DataFrame()
+    if raw_df is not None and len(raw_df):
+        raw = _raw_df_with_row_index(raw_df)
+        needed = {"case_id", "row_index", "preop_MRI_text", "path_report_text"}
+        if needed.issubset(raw.columns):
+            raw_flags = raw[["case_id", "row_index", "preop_MRI_text", "path_report_text"]].copy()
+            raw_flags["mri_report_missing"] = raw_flags["preop_MRI_text"].apply(_is_missing_text).astype(int)
+            raw_flags["path_report_missing"] = raw_flags["path_report_text"].apply(_is_missing_text).astype(int)
+            raw_flags["mri_report_chars"] = raw_flags["preop_MRI_text"].fillna("").astype(str).str.len()
+            raw_flags = raw_flags.drop(columns=["preop_MRI_text", "path_report_text"])
 
     best_reg = _best_row(metrics_df, "regression", TARGET_NAME_DISPERSION_SCORE)
     if best_reg is not None:
@@ -547,7 +725,8 @@ def generate_error_analysis(pred_case_df: pd.DataFrame, metrics_df: pd.DataFrame
 
     out = pd.DataFrame(rows)
     if len(out):
-        out = out.merge(raw_flags, on=["case_id", "row_index"], how="left")
+        if len(raw_flags):
+            out = out.merge(raw_flags, on=["case_id", "row_index"], how="left")
         out["likely_failure_modes"] = out.apply(lambda r: ";".join([
             "missing_mri_report" if int(r.get("mri_report_missing", 0) or 0) == 1 else "",
             "sparse_mri_language" if int(r.get("mri_report_chars", 9999) or 9999) < 800 and str(r.get("dataset_key", "")).startswith("mri") else "",
@@ -568,6 +747,123 @@ def generate_error_analysis(pred_case_df: pd.DataFrame, metrics_df: pd.DataFrame
     return out, md_path
 
 
+def generate_missed_case_html_report(
+    error_df: pd.DataFrame,
+    out_dir: str,
+    metrics_df: Optional[pd.DataFrame] = None,
+) -> str:
+    """Build a readable HTML review page for poorly predicted cases."""
+    html_path = os.path.join(out_dir, "missed_case_review.html")
+    if error_df is None or len(error_df) == 0:
+        body = html_paragraph(
+            "No missed-case rows were available. Run the full pipeline or provide "
+            "`nested_outer_predictions_case_deduplicated.csv` plus `--csv-path` for MRI availability flags."
+        )
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(build_html_report(
+                "Missed-Case Review",
+                "Case-level error analysis for the top aggregate models on deduplicated held-out predictions.",
+                [html_section("Status", [body])],
+            ))
+        return html_path
+
+    display_cols = [
+        c for c in [
+            "error_task", "error_type", "case_id", "row_index", "split_id",
+            "dataset_key", "representation", "model_key", "model_summary",
+            "y_true", "y_pred", "y_pred_value", "y_prob", "residual", "abs_residual",
+            "confidence", "mri_report_missing", "path_report_missing", "mri_report_chars",
+            "likely_failure_modes",
+        ]
+        if c in error_df.columns
+    ]
+    preview = error_df[display_cols].copy() if display_cols else error_df.copy()
+
+    sections: List[str] = []
+    sections.append(html_section(
+        "Overview",
+        [html_paragraph(
+            "This page lists cases with the largest regression residuals, classification false positives/negatives, "
+            "and high-confidence errors from the best-performing aggregate models. Evidence columns reflect report "
+            "availability only; feature-level evidence requires per-split extraction artifacts."
+        )],
+    ))
+
+    if metrics_df is not None and len(metrics_df):
+        pathway_rows = []
+        for label, row in [
+            ("Best MRI regression", _best_row(metrics_df, "regression", TARGET_NAME_DISPERSION_SCORE, "mri")),
+            ("Best pathology regression", _best_row(metrics_df, "regression", TARGET_NAME_DISPERSION_SCORE, "path")),
+            ("Best combined regression", _best_row(metrics_df, "regression", TARGET_NAME_DISPERSION_SCORE, "combined")),
+            ("Best high/low classifier", _best_row(metrics_df, "classification", TARGET_NAME_DISPERSION_HIGH_LOW)),
+            ("Best relapse classifier", _best_row(metrics_df, "classification", TARGET_NAME_RELAPSE_STATUS)),
+        ]:
+            if row is not None:
+                pathway_rows.append({
+                    "pathway": label,
+                    "dataset_key": row.get("dataset_key"),
+                    "model_key": row.get("model_key"),
+                    "representation": row.get("representation"),
+                })
+        if pathway_rows:
+            sections.append(html_section(
+                "Reference models for error extraction",
+                [df_to_html_table(pd.DataFrame(pathway_rows), max_rows=10)],
+            ))
+
+    for error_type, title in [
+        ("strong_overprediction", "Largest over-predictions (regression)"),
+        ("strong_underprediction", "Largest under-predictions (regression)"),
+        ("false_positive", "False positives (predicted positive, true negative)"),
+        ("false_negative", "False negatives (predicted negative, true positive)"),
+        ("high_confidence_incorrect", "High-confidence incorrect classifications"),
+    ]:
+        sub = preview[preview["error_type"] == error_type] if "error_type" in preview.columns else pd.DataFrame()
+        if len(sub):
+            sections.append(html_section(title, [df_to_html_table(sub.head(15), max_rows=15)]))
+
+    remaining = preview[~preview["error_type"].isin([
+        "strong_overprediction", "strong_underprediction", "false_positive",
+        "false_negative", "high_confidence_incorrect",
+    ])] if "error_type" in preview.columns else pd.DataFrame()
+    if len(remaining):
+        sections.append(html_section("Other flagged cases", [df_to_html_table(remaining.head(20), max_rows=20)]))
+
+    if "likely_failure_modes" in preview.columns:
+        mode_counts = (
+            preview["likely_failure_modes"].astype(str).str.split(";").explode().replace("", np.nan).dropna().value_counts().reset_index()
+        )
+        mode_counts.columns = ["failure_mode", "count"]
+        if len(mode_counts):
+            sections.append(html_section(
+                "Common failure-mode tags",
+                [
+                    df_to_html_table(mode_counts, max_rows=20),
+                    html_paragraph(
+                        "Tags are heuristic summaries from available artifacts (missing MRI, sparse language, "
+                        "threshold proximity). They are not causal explanations."
+                    ),
+                ],
+            ))
+
+    sections.append(html_section(
+        "Diagnostics note",
+        [html_paragraph(
+            "Improvement suggestions should be grounded in split-level lexicon coverage, class balance, and "
+            "modality availability. Compare MRI-only versus pathology-only errors before attributing failures "
+            "to a single representation."
+        )],
+    ))
+
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(build_html_report(
+            "Missed-Case Review",
+            "Case-level error analysis for poorly predicted held-out cases.",
+            sections,
+        ))
+    return html_path
+
+
 def generate_interpretability_report(
     out_dir: str,
     coef_all: pd.DataFrame,
@@ -578,6 +874,8 @@ def generate_interpretability_report(
     stable_group_summary: pd.DataFrame,
     reliability_all: pd.DataFrame,
     weighted_lexicon_all: pd.DataFrame,
+    hyperparams_df: Optional[pd.DataFrame] = None,
+    ontology_df: Optional[pd.DataFrame] = None,
 ) -> Tuple[str, str]:
     md_path = os.path.join(out_dir, "interpretability_report.md")
     html_path = os.path.join(out_dir, "interpretability_report.html")
@@ -598,12 +896,47 @@ def generate_interpretability_report(
     density_df = pd.DataFrame(density_rows)
     if len(density_df):
         density_df.to_csv(os.path.join(out_dir, "feature_density_summary_by_modality.csv"), index=False)
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+        x = np.arange(len(density_df))
+        width = 0.35
+        if "n_candidate_phrases" in density_df.columns:
+            ax.bar(x - width / 2, density_df["n_candidate_phrases"].fillna(0), width, label="candidate phrases")
+        if "n_stable_phrases" in density_df.columns:
+            ax.bar(x + width / 2, density_df["n_stable_phrases"].fillna(0), width, label="stable phrases")
+        ax.set_xticks(x)
+        ax.set_xticklabels(density_df["report_mode"].astype(str))
+        ax.set_ylabel("Feature count")
+        ax.set_title("Feature counts by modality")
+        ax.legend(fontsize=8)
+        _save_figure(os.path.join(report_dir, "feature_count_by_modality.png"), fig)
+
+    if len(phrase_freq_all) and "selection_frequency" in phrase_freq_all.columns:
+        prev = phrase_freq_all.copy()
+        if "report_mode" in prev.columns:
+            prev = prev.groupby("report_mode")["selection_frequency"].mean().reset_index()
+            prev.columns = ["report_mode", "mean_selection_frequency"]
+            fig, ax = plt.subplots(figsize=(7, 4))
+            ax.bar(prev["report_mode"].astype(str), prev["mean_selection_frequency"].astype(float))
+            ax.set_ylabel("Mean rediscovery frequency")
+            ax.set_title("Feature stability prevalence by modality")
+            _save_figure(os.path.join(report_dir, "feature_prevalence_by_modality.png"), fig)
 
     top_coef = pd.DataFrame()
     if len(coef_all):
         top_coef = coef_all.copy()
         top_coef = top_coef.sort_values("abs_coef", ascending=False).head(200)
         top_coef.to_csv(os.path.join(out_dir, "top_model_coefficients_interpretability.csv"), index=False)
+        top_reg = top_coef[top_coef["task_type"].astype(str) == "regression"].head(25) if "task_type" in top_coef.columns else pd.DataFrame()
+        if len(top_reg) and "feature" in top_reg.columns:
+            fig_h = max(5.0, min(0.35 * len(top_reg) + 2.0, 16.0))
+            fig, ax = plt.subplots(figsize=(10, fig_h))
+            colors = np.where(top_reg["coef"].astype(float) >= 0, "#4C78A8", "#E45756")
+            ax.barh(top_reg["feature"].astype(str), top_reg["coef"].astype(float), color=colors)
+            ax.axvline(0, color="gray", linestyle="--", linewidth=0.8)
+            ax.invert_yaxis()
+            ax.set_xlabel("Coefficient")
+            ax.set_title("Top regression coefficients")
+            _save_figure(os.path.join(report_dir, "top_regression_coefficients.png"), fig)
 
     if len(sign_stability_df):
         top_stab = sign_stability_df.sort_values(["n_nonzero", "sign_consistency", "mean_abs_coef"], ascending=[False, False, False]).head(40)
@@ -678,6 +1011,12 @@ def generate_interpretability_report(
     md.append(_df_to_markdown(sign_stability_df.head(50) if len(sign_stability_df) else sign_stability_df, max_rows=50))
     md.append("\n## Pathology-calibrated MRI weights\n")
     md.append(_df_to_markdown(weighted_lexicon_all.head(50) if len(weighted_lexicon_all) else weighted_lexicon_all, max_rows=50))
+    if hyperparams_df is not None and len(hyperparams_df):
+        md.append("\n## Selected hyperparameters\n")
+        md.append(_df_to_markdown(hyperparams_df.head(50), max_rows=50))
+    if ontology_df is not None and len(ontology_df):
+        md.append("\n## Shared ontology concepts\n")
+        md.append(_df_to_markdown(ontology_df.head(30), max_rows=30))
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(md))
 
@@ -685,6 +1024,9 @@ def generate_interpretability_report(
         "coefficient_sign_stability.png": os.path.join(report_dir, "coefficient_sign_stability.png"),
         "mri_pathology_reliability_heatmap.png": os.path.join(report_dir, "mri_pathology_reliability_heatmap.png"),
         "weighted_mri_concepts.png": os.path.join(report_dir, "weighted_mri_concepts.png"),
+        "feature_count_by_modality.png": os.path.join(report_dir, "feature_count_by_modality.png"),
+        "feature_prevalence_by_modality.png": os.path.join(report_dir, "feature_prevalence_by_modality.png"),
+        "top_regression_coefficients.png": os.path.join(report_dir, "top_regression_coefficients.png"),
     }
 
     def _interp_plot_html(filename: str, title: str) -> str:
@@ -722,7 +1064,19 @@ def generate_interpretability_report(
                 _interp_plot_html("weighted_mri_concepts.png", "Top pathology-calibrated MRI concept weights"),
             ],
         ),
+        html_section(
+            "Feature engineering summary",
+            [
+                _interp_plot_html("feature_count_by_modality.png", "Feature counts by modality"),
+                _interp_plot_html("feature_prevalence_by_modality.png", "Feature stability prevalence"),
+                _interp_plot_html("top_regression_coefficients.png", "Top regression coefficients"),
+            ],
+        ),
     ]
+    if hyperparams_df is not None and len(hyperparams_df):
+        html_sections.append(html_section("Selected hyperparameters", [df_to_html_table(hyperparams_df.head(50), max_rows=50)]))
+    if ontology_df is not None and len(ontology_df):
+        html_sections.append(html_section("Shared ontology concepts", [df_to_html_table(ontology_df.head(30), max_rows=30)]))
     intro = (
         "This report summarizes extracted lexical feature density, stable lexicons, fitted model coefficients, "
         "coefficient stability, pathology-MRI reliability, and pathology-calibrated MRI weights. MRI and pathology "
@@ -743,12 +1097,40 @@ def generate_results_report(
     permutation_df: pd.DataFrame,
     plot_paths: Sequence[str],
     path_mri_subset_metrics_df: pd.DataFrame,
+    run_metadata: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, str]:
     md_path = os.path.join(out_dir, "automated_results_report.md")
     html_path = os.path.join(out_dir, "automated_results_report.html")
+    run_metadata = run_metadata or _load_run_metadata(out_dir)
+    label_dist_df = _summarize_label_distributions(pred_case_df)
+    split_summary_df = run_metadata.get("split_summary_df", pd.DataFrame())
+    mri_missing_df = run_metadata.get("mri_missing_df", pd.DataFrame())
     lines = []
     lines.append("# Automated Model Performance Report\n")
     lines.append("All aggregate metrics in this report are computed from held-out outer-test predictions after case-level deduplication, so each case contributes at most one prediction per dataset / representation / model / target. Raw per-split predictions are saved separately.\n")
+
+    if run_metadata.get("nested_summary_text"):
+        lines.append("## Run overview\n")
+        lines.append("```text\n" + run_metadata["nested_summary_text"] + "\n```\n")
+    cost_post = run_metadata.get("cost_post_run") or {}
+    if cost_post:
+        lines.append("## Token cost summary\n")
+        lines.append(_df_to_markdown(pd.DataFrame([{
+            "total_input_tokens": cost_post.get("total_input_tokens"),
+            "total_output_tokens": cost_post.get("total_output_tokens"),
+            "estimated_total_cost_usd": cost_post.get("estimated_total_cost_usd"),
+            "cost_type": cost_post.get("cost_type"),
+        }]), max_rows=5))
+
+    if len(split_summary_df):
+        lines.append("\n## Outer-fold split summary\n")
+        lines.append(_df_to_markdown(split_summary_df, max_rows=20))
+    if len(mri_missing_df):
+        lines.append("\n## Missing MRI handling\n")
+        lines.append(_df_to_markdown(mri_missing_df, max_rows=20))
+    if len(label_dist_df):
+        lines.append("\n## Label distributions (deduplicated held-out predictions)\n")
+        lines.append(_df_to_markdown(label_dist_df, max_rows=20))
     lines.append("## Top model summary\n")
     best_specs = [
         ("Top MRI-only regression", _best_row(metrics_df, "regression", TARGET_NAME_DISPERSION_SCORE, "mri")),
@@ -782,6 +1164,11 @@ def generate_results_report(
         lines.append("Pathology-only models can use all target-eligible cases, while MRI-derived and combined models exclude MRI-missing cases. The table below recomputes pathology-only aggregate metrics on MRI-complete cases for comparison.\n")
         lines.append(_df_to_markdown(path_mri_subset_metrics_df, max_rows=50))
 
+    if len(fold_results_all):
+        fold_cols = [c for c in ["split_id", "target_name", "dataset_key", "representation", "model_key", "mae", "spearman_rho", "auroc", "auprc", "f1", "brier", "n"] if c in fold_results_all.columns]
+        lines.append("\n## Per-fold performance (sample)\n")
+        lines.append(_df_to_markdown(fold_results_all[fold_cols].head(80) if fold_cols else fold_results_all.head(80), max_rows=80))
+
     lines.append("\n## Generated plots\n")
     for path in plot_paths:
         rel = os.path.relpath(path, out_dir)
@@ -797,9 +1184,11 @@ def generate_results_report(
         ("Regression performance", [
             "top_regression_predicted_vs_true.png",
             "top_regression_residuals.png",
+            "top_regression_spearman_rank.png",
             "nested_regression_error_comparison.png",
             "nested_regression_correlation_comparison.png",
             "ranked_model_mae.png",
+            "per_fold_regression_mae.png",
         ]),
         ("Dispersion high/low classification", [
             "top_dispersion_high_low_confusion_matrix.png",
@@ -824,6 +1213,7 @@ def generate_results_report(
         ]),
         ("Uncertainty and model ranking", [
             "bootstrap_ci_primary_metrics.png",
+            "pathway_modality_comparison.png",
         ]),
     ]
     plot_path_by_name = {os.path.basename(p): p for p in plot_paths if os.path.exists(p)}
@@ -848,7 +1238,29 @@ def generate_results_report(
     if remaining:
         plot_sections.append(html_section("Additional figures", remaining))
 
-    html_sections = [
+    html_sections = []
+    if run_metadata.get("nested_summary_text"):
+        html_sections.append(html_section("Run overview", [html_paragraph(run_metadata["nested_summary_text"])]))
+    if cost_post:
+        html_sections.append(html_section("Token cost summary", [
+            df_to_html_table(pd.DataFrame([{
+                "total_input_tokens": cost_post.get("total_input_tokens"),
+                "total_output_tokens": cost_post.get("total_output_tokens"),
+                "estimated_total_cost_usd": cost_post.get("estimated_total_cost_usd"),
+                "cost_type": cost_post.get("cost_type"),
+            }]), max_rows=5),
+        ]))
+    if len(split_summary_df):
+        html_sections.append(html_section("Outer-fold split summary", [df_to_html_table(split_summary_df, max_rows=20)]))
+    if len(mri_missing_df):
+        html_sections.append(html_section("Missing MRI handling", [
+            df_to_html_table(mri_missing_df, max_rows=20),
+            html_paragraph("MRI-missing cases are excluded from MRI-only, combined, calibrated-MRI, and teacher-student pathways."),
+        ]))
+    if len(label_dist_df):
+        html_sections.append(html_section("Label distributions", [df_to_html_table(label_dist_df, max_rows=20)]))
+
+    html_sections.extend([
         html_section("Top model summary", [df_to_html_table(summary_df, max_rows=20)]),
         html_section("Aggregate held-out metrics", [df_to_html_table(metrics_table_df, max_rows=100)]),
         html_section("Relapse imbalance diagnostics", [
@@ -857,7 +1269,7 @@ def generate_results_report(
                 "AUPRC no-skill baselines are included in the aggregate metrics table and equal the event prevalence for the evaluated prediction set."
             ),
         ]),
-    ]
+    ])
     if len(permutation_df):
         html_sections.append(
             html_section(
@@ -877,6 +1289,12 @@ def generate_results_report(
                 ],
             )
         )
+    if len(fold_results_all):
+        fold_cols = [c for c in ["split_id", "target_name", "dataset_key", "representation", "model_key", "mae", "spearman_rho", "auroc", "auprc", "f1", "brier", "n"] if c in fold_results_all.columns]
+        html_sections.append(html_section(
+            "Per-fold performance",
+            [df_to_html_table(fold_results_all[fold_cols].head(80) if fold_cols else fold_results_all.head(80), max_rows=80)],
+        ))
     html_sections.extend(plot_sections)
     intro = (
         "All aggregate metrics in this report are computed from held-out outer-test predictions after case-level "
@@ -888,41 +1306,45 @@ def generate_results_report(
     return md_path, html_path
 
 
-def regenerate_reports_and_plots(out_dir: str, args: argparse.Namespace) -> None:
-    """Rebuild plots and HTML reports from saved nested-evaluation artifacts."""
+def generate_all_reports(
+    out_dir: str,
+    *,
+    csv_path: Optional[str] = None,
+    force: bool = False,
+) -> Dict[str, str]:
+    """Generate plots and all three HTML review reports from saved run artifacts."""
     metrics_path = os.path.join(out_dir, "nested_outer_metrics_summary.csv")
     pred_path = os.path.join(out_dir, "nested_outer_predictions_case_deduplicated.csv")
     if not os.path.exists(metrics_path) or not os.path.exists(pred_path):
         raise FileNotFoundError(
-            f"Expected {metrics_path} and {pred_path} for report regeneration."
+            f"Expected {metrics_path} and {pred_path} for report generation."
         )
+
+    results_html = os.path.join(out_dir, "automated_results_report.html")
+    interp_html = os.path.join(out_dir, "interpretability_report.html")
+    missed_html = os.path.join(out_dir, "missed_case_review.html")
+    if not force and all(os.path.exists(p) for p in [results_html, interp_html, missed_html]):
+        print("[SKIP] HTML reports already exist; pass force=True to regenerate.")
 
     metrics_df = pd.read_csv(metrics_path)
     pred_case_all = pd.read_csv(pred_path)
-    coef_path = os.path.join(out_dir, "nested_outer_feature_coefficients_all.csv")
-    coef_all = pd.read_csv(coef_path) if os.path.exists(coef_path) else pd.DataFrame()
-    sign_stability_path = os.path.join(out_dir, "nested_feature_sign_stability.csv")
-    sign_stability_df = pd.read_csv(sign_stability_path) if os.path.exists(sign_stability_path) else pd.DataFrame()
-    phrase_freq_path = os.path.join(out_dir, "all_outer_phrase_rediscovery_frequencies.csv")
-    phrase_freq_all = pd.read_csv(phrase_freq_path) if os.path.exists(phrase_freq_path) else pd.DataFrame()
-    group_freq_path = os.path.join(out_dir, "all_outer_group_rediscovery_frequencies.csv")
-    group_freq_all = pd.read_csv(group_freq_path) if os.path.exists(group_freq_path) else pd.DataFrame()
-    stable_phrase_path = os.path.join(out_dir, "stable_phrase_lexicon_outer_summary.csv")
-    stable_phrase_summary = pd.read_csv(stable_phrase_path) if os.path.exists(stable_phrase_path) else pd.DataFrame()
-    stable_group_path = os.path.join(out_dir, "stable_group_lexicon_outer_summary.csv")
-    stable_group_summary = pd.read_csv(stable_group_path) if os.path.exists(stable_group_path) else pd.DataFrame()
-    reliability_path = os.path.join(out_dir, "all_outer_mri_pathology_reliability_matrices.csv")
-    reliability_all = pd.read_csv(reliability_path) if os.path.exists(reliability_path) else pd.DataFrame()
-    weighted_path = os.path.join(out_dir, "all_outer_weighted_mri_lexicons.csv")
-    weighted_lexicon_all = pd.read_csv(weighted_path) if os.path.exists(weighted_path) else pd.DataFrame()
-    relapse_balance_path = os.path.join(out_dir, "relapse_class_balance_by_split.csv")
-    relapse_balance_df = pd.read_csv(relapse_balance_path) if os.path.exists(relapse_balance_path) else pd.DataFrame()
-    permutation_path = os.path.join(out_dir, "relapse_permutation_tests.csv")
-    permutation_df = pd.read_csv(permutation_path) if os.path.exists(permutation_path) else pd.DataFrame()
-    path_subset_path = os.path.join(out_dir, "pathology_only_mri_complete_subset_metrics.csv")
-    path_mri_subset_metrics_df = pd.read_csv(path_subset_path) if os.path.exists(path_subset_path) else pd.DataFrame()
+    coef_all = pd.read_csv(os.path.join(out_dir, "nested_outer_feature_coefficients_all.csv")) if os.path.exists(os.path.join(out_dir, "nested_outer_feature_coefficients_all.csv")) else pd.DataFrame()
+    sign_stability_df = pd.read_csv(os.path.join(out_dir, "nested_feature_sign_stability.csv")) if os.path.exists(os.path.join(out_dir, "nested_feature_sign_stability.csv")) else pd.DataFrame()
+    phrase_freq_all = pd.read_csv(os.path.join(out_dir, "all_outer_phrase_rediscovery_frequencies.csv")) if os.path.exists(os.path.join(out_dir, "all_outer_phrase_rediscovery_frequencies.csv")) else pd.DataFrame()
+    group_freq_all = pd.read_csv(os.path.join(out_dir, "all_outer_group_rediscovery_frequencies.csv")) if os.path.exists(os.path.join(out_dir, "all_outer_group_rediscovery_frequencies.csv")) else pd.DataFrame()
+    stable_phrase_summary = pd.read_csv(os.path.join(out_dir, "stable_phrase_lexicon_outer_summary.csv")) if os.path.exists(os.path.join(out_dir, "stable_phrase_lexicon_outer_summary.csv")) else pd.DataFrame()
+    stable_group_summary = pd.read_csv(os.path.join(out_dir, "stable_group_lexicon_outer_summary.csv")) if os.path.exists(os.path.join(out_dir, "stable_group_lexicon_outer_summary.csv")) else pd.DataFrame()
+    reliability_all = pd.read_csv(os.path.join(out_dir, "all_outer_mri_pathology_reliability_matrices.csv")) if os.path.exists(os.path.join(out_dir, "all_outer_mri_pathology_reliability_matrices.csv")) else pd.DataFrame()
+    weighted_lexicon_all = pd.read_csv(os.path.join(out_dir, "all_outer_weighted_mri_lexicons.csv")) if os.path.exists(os.path.join(out_dir, "all_outer_weighted_mri_lexicons.csv")) else pd.DataFrame()
+    hyperparams_df = pd.read_csv(os.path.join(out_dir, "nested_outer_hyperparameters_all.csv")) if os.path.exists(os.path.join(out_dir, "nested_outer_hyperparameters_all.csv")) else pd.DataFrame()
+    ontology_df = pd.read_csv(os.path.join(out_dir, "shared_biological_concept_ontology.csv")) if os.path.exists(os.path.join(out_dir, "shared_biological_concept_ontology.csv")) else pd.DataFrame()
+    relapse_balance_df = pd.read_csv(os.path.join(out_dir, "relapse_class_balance_by_split.csv")) if os.path.exists(os.path.join(out_dir, "relapse_class_balance_by_split.csv")) else pd.DataFrame()
+    permutation_df = pd.read_csv(os.path.join(out_dir, "relapse_permutation_tests.csv")) if os.path.exists(os.path.join(out_dir, "relapse_permutation_tests.csv")) else pd.DataFrame()
+    path_mri_subset_metrics_df = pd.read_csv(os.path.join(out_dir, "pathology_only_mri_complete_subset_metrics.csv")) if os.path.exists(os.path.join(out_dir, "pathology_only_mri_complete_subset_metrics.csv")) else pd.DataFrame()
+    fold_results_all = pd.read_csv(os.path.join(out_dir, "nested_outer_fold_metrics_all.csv")) if os.path.exists(os.path.join(out_dir, "nested_outer_fold_metrics_all.csv")) else pd.DataFrame()
+    run_metadata = _load_run_metadata(out_dir)
 
-    interp_md, interp_html = generate_interpretability_report(
+    interp_md, interp_html_path = generate_interpretability_report(
         out_dir=out_dir,
         coef_all=coef_all,
         sign_stability_df=sign_stability_df,
@@ -932,8 +1354,10 @@ def regenerate_reports_and_plots(out_dir: str, args: argparse.Namespace) -> None
         stable_group_summary=stable_group_summary,
         reliability_all=reliability_all,
         weighted_lexicon_all=weighted_lexicon_all,
+        hyperparams_df=hyperparams_df,
+        ontology_df=ontology_df,
     )
-    print(f"[SAVE] Wrote interpretability reports: {interp_md}, {interp_html}")
+    print(f"[SAVE] Wrote interpretability reports: {interp_md}, {interp_html_path}")
 
     cls_plot_png = os.path.join(out_dir, "nested_classification_comparison.png")
     relapse_auroc_plot_png = os.path.join(out_dir, "nested_relapse_auroc_comparison.png")
@@ -951,6 +1375,9 @@ def regenerate_reports_and_plots(out_dir: str, args: argparse.Namespace) -> None
     plot_regression_error_comparison(metrics_df, reg_err_plot_png)
     plot_regression_correlation_comparison(metrics_df, reg_corr_plot_png)
     report_plot_paths = generate_performance_plots(pred_case_all, metrics_df, out_dir)
+    per_fold_png = os.path.join(out_dir, "report_plots", "per_fold_regression_mae.png")
+    if _plot_per_fold_regression_mae(fold_results_all, metrics_df, per_fold_png):
+        report_plot_paths.append(per_fold_png)
     for pth in [
         cls_plot_png,
         relapse_auroc_plot_png,
@@ -964,9 +1391,8 @@ def regenerate_reports_and_plots(out_dir: str, args: argparse.Namespace) -> None
     ]:
         if os.path.exists(pth):
             report_plot_paths.append(pth)
-    fold_results_path = os.path.join(out_dir, "nested_outer_fold_metrics_all.csv")
-    fold_results_all = pd.read_csv(fold_results_path) if os.path.exists(fold_results_path) else pd.DataFrame()
-    results_md, results_html = generate_results_report(
+
+    results_md, results_html_path = generate_results_report(
         out_dir=out_dir,
         metrics_df=metrics_df,
         pred_case_df=pred_case_all,
@@ -975,8 +1401,33 @@ def regenerate_reports_and_plots(out_dir: str, args: argparse.Namespace) -> None
         permutation_df=permutation_df,
         plot_paths=report_plot_paths,
         path_mri_subset_metrics_df=path_mri_subset_metrics_df,
+        run_metadata=run_metadata,
     )
-    print(f"[SAVE] Wrote automated results reports: {results_md}, {results_html}")
+    print(f"[SAVE] Wrote automated results reports: {results_md}, {results_html_path}")
+
+    raw_df = pd.DataFrame()
+    if csv_path and os.path.isfile(csv_path):
+        raw_df = load_cases(csv_path)
+    error_df, error_md = generate_error_analysis(pred_case_all, metrics_df, raw_df, out_dir)
+    if error_md:
+        print(f"[SAVE] Wrote missed-case markdown/csv: {error_md}")
+    missed_html_path = generate_missed_case_html_report(error_df, out_dir, metrics_df)
+    print(f"[SAVE] Wrote missed-case HTML review: {missed_html_path}")
+
+    return {
+        "results_html": results_html_path,
+        "interpretability_html": interp_html_path,
+        "missed_case_html": missed_html_path,
+        "results_md": results_md,
+        "interpretability_md": interp_md,
+        "missed_case_md": error_md,
+    }
+
+
+def regenerate_reports_and_plots(out_dir: str, args: argparse.Namespace) -> None:
+    """Rebuild plots and HTML reports from saved nested-evaluation artifacts."""
+    csv_path = getattr(args, "csv_path", None)
+    generate_all_reports(out_dir, csv_path=csv_path, force=True)
 
 
 def pathology_metrics_on_mri_complete(pred_case_df: pd.DataFrame, raw_df: pd.DataFrame, args: argparse.Namespace) -> pd.DataFrame:

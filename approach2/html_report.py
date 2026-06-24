@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html
 import os
-from typing import Optional, Sequence
+from typing import Dict, Optional, Sequence
 
 import pandas as pd
 
@@ -173,6 +173,26 @@ PLOT_EXPLANATIONS: Dict[str, str] = {
     ),
     "nested_regression_correlation_comparison.png": (
         "Held-out Spearman rank correlation between predicted and true dispersion scores."
+    ),
+    "top_regression_spearman_rank.png": (
+        "Rank of true versus rank of predicted dispersion for the top regression model. "
+        "Points near the diagonal indicate preserved ordering across the cohort."
+    ),
+    "pathway_modality_comparison.png": (
+        "Side-by-side comparison of primary metrics across dataset pathways "
+        "(MRI-only, pathology-only, combined, calibrated MRI, teacher-student when present)."
+    ),
+    "feature_prevalence_by_modality.png": (
+        "Mean training-set prevalence of stable phrase features by report modality."
+    ),
+    "top_regression_coefficients.png": (
+        "Largest-magnitude regression coefficients from aggregate held-out models."
+    ),
+    "feature_count_by_modality.png": (
+        "Count of candidate and stable features discovered per modality after rediscovery."
+    ),
+    "per_fold_regression_mae.png": (
+        "Held-out MAE for the best regression setting within each outer split."
     ),
 }
 

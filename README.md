@@ -1,4 +1,4 @@
-# onc-pipeline
+# Lexical Dispersion Evaluation Pipeline
 
 Leakage-aware clinical NLP and machine learning pipelines for predicting breast tumor **spatial dispersiveness** and **relapse risk** from post-neoadjuvant, pre-surgery MRI and pathology report text.
 
@@ -10,7 +10,7 @@ Both pipelines use the Stanford Health Care AI Sandbox (GPT-5-nano Global) for L
 | ------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
 | **Goal**            | Few-shot LLM prediction of dispersion score, high/low class, and relapse | Nested CV: lexical feature discovery → supervised ML → calibration & reports |
 | **Entry point**     | `approach1.py`                                                           | `approach2.py`                                                               |
-| **Auxiliary entry** | —                                                                        | `approach2_aux.py` (standalone MRI/path extraction)                          |
+| **Auxiliary entry** | —                                                                        | `approach2_aux.py` (extraction), `approach2_generate_reports.py` (HTML reports) |
 | **Package**         | `approach1/`                                                             | `approach2/`                                                                 |
 | **Change log**      | [`approach1_progress.md`](approach1_progress.md)                         | [`approach2_progress.md`](approach2_progress.md)                             |
 
@@ -35,7 +35,68 @@ flowchart TD
 
 **Approach 2** is a nested outer/inner evaluation framework. It extracts quote-grounded lexical features from MRI and pathology reports, discovers stable lexicons within training folds only, trains supervised models for dispersion regression/classification and relapse prediction, and supports pathology-informed MRI calibration, teacher–student pathways, automated reports, and fold-level parallelism.
 
-## Requirements
+### Approach 2 pipeline overview
+
+```mermaid
+flowchart TD
+    A[Load CSV cases] --> B[Build outer splits]
+    B --> C[Save split provenance manifest]
+    C --> D[Train-only LLM extraction MRI + pathology]
+    D --> E[Inner rediscovery CV on train phrases]
+    E --> F[Freeze stable lexicon]
+    F --> G[Rule-based recode train + test]
+    G --> H[Build feature matrices]
+    H --> I{MRI-derived pathway?}
+    I -->|mri / combined / calibrated| J[Drop MRI-missing cases]
+    I -->|pathology-only| K[Keep all pathology cases]
+    J --> L[Optional pathology-calibrated MRI weights]
+    K --> L
+    L --> M[Optional teacher-student MRI multitask]
+    M --> N[Fit scaler/model on outer-train only]
+    N --> O[Predict outer-test]
+    O --> P[Aggregate metrics + bootstrap CI]
+    P --> Q[Generate plots + HTML reports]
+```
+
+![Approach 2 nested evaluation pipeline](docs/approach2_pipeline_flowchart.png)
+
+*Figure: Approach 2 leakage-aware nested resampling pipeline. Lexicon discovery, calibration weights, and model fitting use outer-training data only; held-out test cases receive frozen rules and models.*
+
+#### Leakage-aware design
+
+- Outer splits are saved with provenance manifests under `outer_splits/outer_split_NNN/`.
+- LLM extraction, inner rediscovery, stable lexicon freezing, MRI–pathology reliability estimation, weighted MRI lexicons, and teacher–student training are restricted to **outer-training** cases.
+- Held-out outer-test cases are recoded with frozen lexicons and predicted by models fit on outer-train only.
+
+#### Missing MRI handling
+
+- MRI-missing cases (empty/`NA` placeholders) are **excluded** from MRI-only, combined, pathology-calibrated MRI, and teacher–student pathways.
+- Pathology-only models retain all target-eligible cases.
+- Summary artifact: `mri_missing_case_summary.csv` (when the full pipeline runs).
+
+#### Split strategy
+
+- Default outer design: **repeated Monte Carlo** (`--outer-scheme repeated_mc`, 5× stratified 80/20 by default).
+- Inner rediscovery on outer-train uses a separate repeated-MC or stratified-kfold scheme (`--rediscovery-scheme`).
+- Resume fingerprints validate CSV path, split hashes, seeds, and configuration before skipping completed folds.
+
+#### Feature stability and count normalization
+
+- Stable features are selected when rediscovery frequency exceeds `--stability-threshold` (default 0.40).
+- Optional cap per modality: `--target-stable-features-per-modality` ranks by train-only selection frequency (0 = no cap).
+- MRI and pathology are **not** forced to equal feature counts.
+
+#### Cost estimation
+
+- Pre-run: `llm_cost_estimate_apriori.json` (interactive confirmation unless `-y` / `--yes`).
+- Post-run: `llm_token_cost_report.json`.
+
+#### Parallelism
+
+- `--parallel-fold-workers` — concurrent outer folds (isolated split directories + checkpoints).
+- `--max-api-workers` — global API semaphore across folds/modalities.
+- `--parallel-modality-workers`, `--ml-n-jobs` — within-fold modality and GridSearch parallelism.
+
 
 - Python ≥ 3.10
 - Stanford AI Sandbox API key (`SANDBOX_API_KEY`)
@@ -98,6 +159,30 @@ python approach2.py \
 
 Use `--regenerate-reports-only` to rebuild plots and HTML/Markdown reports from saved `nested_outer_*` artifacts without re-running extraction or model fitting.
 
+**Resume** a partial run (skips completed outer splits when fingerprints match):
+
+```bash
+python approach2.py \
+  --csv-path /path/to/cases.csv \
+  --out_dir ./outputs/approach2 \
+  --resume \
+  --skip-completed-splits \
+  --yes
+```
+
+**Generate HTML review reports** without re-running the pipeline:
+
+```bash
+python approach2_generate_reports.py \
+  --run-dir ./outputs/approach2 \
+  --csv-path /path/to/cases.csv \
+  --force
+
+python -m approach2.report_cli --run-dir ./outputs/approach2 --force --open
+```
+
+Regenerate flowchart PNG: `python scripts/generate_approach2_flowchart.py`
+
 ### Approach 2 — standalone extraction only
 
 Run MRI or pathology lexical extraction without the full nested evaluator:
@@ -119,10 +204,13 @@ pipeline/
 ├── pyproject.toml              # onc-pipeline package (approach1 + approach2)
 ├── approach1.py                # thin CLI shim → approach1.cli
 ├── scripts/
-│   └── generate_approach1_flowchart.py
+│   ├── generate_approach1_flowchart.py
+│   └── generate_approach2_flowchart.py
 ├── docs/
 │   ├── approach1_pipeline_flowchart.mmd
-│   └── approach1_pipeline_flowchart.png
+│   ├── approach1_pipeline_flowchart.png
+│   ├── approach2_pipeline_flowchart.mmd
+│   └── approach2_pipeline_flowchart.png
 ├── approach1/                  # few-shot prediction package
 │   ├── cli.py
 │   ├── orchestration.py
@@ -133,11 +221,13 @@ pipeline/
 │   ├── checkpoint/             # resume, fingerprints
 │   └── evaluation/             # metrics, plots, evidence
 ├── approach2.py                # thin CLI shim → approach2.cli
+├── approach2_generate_reports.py  # report generator shim → approach2.report_cli
 ├── approach2_aux.py            # thin CLI shim → approach2.extraction
 ├── approach2/                  # nested evaluation package
 │   ├── cli.py                  # nested evaluation main()
+│   ├── report_cli.py           # standalone HTML report generator
 │   ├── orchestration.py        # outer-fold execution, checkpoints
-│   ├── reports.py              # automated MD/HTML reports
+│   ├── reports.py              # automated MD/HTML reports + plots
 │   ├── eval_data.py, splits.py, lexicon.py, recoding.py
 │   ├── audit.py, calibration.py, models_ml.py
 │   ├── config.py, models.py, text_utils.py, io_atomic.py
@@ -176,12 +266,18 @@ Verify entry points without a real API key:
 SANDBOX_API_KEY=dummy python approach1.py --help
 SANDBOX_API_KEY=dummy python approach2.py --help
 SANDBOX_API_KEY=dummy python approach2_aux.py --help
+SANDBOX_API_KEY=dummy python approach2_generate_reports.py --help
 ```
 
 ## Outputs and logging
 
 - **Approach 1** writes per-config predictions, evaluation plots, `token_cost_report.json`, and a consolidated **`approach1_results_report.html`** under `--outdir`.
-- **Approach 2** writes nested CV artifacts under `--out_dir`, including per-split lexicons, predictions, metrics (`nested_outer_metrics_summary.csv`), automated reports (`automated_results_report.md`), interpretability summaries, and logs under `logs/`.
+- **Approach 2** writes nested CV artifacts under `--out_dir`, including per-split lexicons, predictions, metrics (`nested_outer_metrics_summary.csv`), and three HTML review pages:
+  - `automated_results_report.html` — performance metrics, calibration/ROC/PR plots, per-fold summaries
+  - `interpretability_report.html` — feature density, coefficients, stability, MRI–pathology reliability
+  - `missed_case_review.html` — worst errors, false positives/negatives, failure-mode tags
+  - Supporting plots in `report_plots/` and `interpretability_plots/`
+  - Markdown mirrors: `automated_results_report.md`, `interpretability_report.md`, `missed_case_error_analysis.md`
 - **Standalone extraction** writes per-case JSON/CSV extractions and `llm_token_cost_report.json`.
 
 See [`approach1_progress.md`](approach1_progress.md) and [`approach2_progress.md`](approach2_progress.md) for detailed output schemas and methodology notes.

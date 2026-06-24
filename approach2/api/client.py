@@ -37,14 +37,21 @@ from ..api.cost import (
 print("[INIT] Stanford AI Sandbox request client configured.")
 print(f"[INIT] URL={URL}")
 print(f"[INIT] DEPLOYMENT={DEPLOYMENT} API_VERSION={API_VERSION}")
+print(f"[INIT] TEMPERATURE={TEMPERATURE}")
 
 
-def _post_chat_completion(messages: Sequence[Dict[str, str]], max_completion_tokens: int = MAX_TOKENS) -> Dict[str, Any]:
+def _post_chat_completion(
+    messages: Sequence[Dict[str, str]],
+    max_completion_tokens: int = MAX_TOKENS,
+    temperature: float = TEMPERATURE,
+) -> Dict[str, Any]:
     payload = {
         "model": DEPLOYMENT,
         "messages": list(messages),
         # GPT-5-style models account for both visible output and reasoning tokens here.
         "max_completion_tokens": int(max_completion_tokens),
+        # Azure OpenAI chat-completions parameter name is "temperature".
+        "temperature": float(temperature),
     }
     if REASONING_EFFORT:
         payload["reasoning_effort"] = REASONING_EFFORT
@@ -88,7 +95,8 @@ def call_securegpt_chat(prompt: str) -> str:
     prompt_token_estimate = estimate_prompt_tokens_from_messages(messages)
     print(
         f"[API] Sending request... prompt_chars={len(prompt)} "
-        f"estimated_prompt_tokens={prompt_token_estimate} max_completion_tokens={MAX_TOKENS}"
+        f"estimated_prompt_tokens={prompt_token_estimate} max_completion_tokens={MAX_TOKENS} "
+        f"temperature={TEMPERATURE}"
     )
     t0 = time.time()
     data = _post_chat_completion(messages=messages, max_completion_tokens=MAX_TOKENS)

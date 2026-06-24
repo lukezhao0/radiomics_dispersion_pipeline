@@ -22,8 +22,27 @@ def _word_count(s: str) -> int:
     return len([w for w in re.split(r"\s+", s.strip()) if w])
 
 
+_MISSING_TEXT_PLACEHOLDERS = frozenset({
+    "",
+    "na",
+    "n/a",
+    "nan",
+    "none",
+    "null",
+    "missing",
+    "not available",
+    "not applicable",
+    "[missing]",
+    "no mri",
+    "no report",
+})
+
+
 def _is_missing_text(x: Any) -> bool:
-    return _safe_text(x).strip() == ""
+    s = _safe_text(x).strip()
+    if not s:
+        return True
+    return s.lower() in _MISSING_TEXT_PLACEHOLDERS
 
 
 def _normalize_ws(s: str) -> str:

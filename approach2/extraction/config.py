@@ -55,7 +55,7 @@ HEADERS = {
     "Accept": "application/json",
 }
 
-TEMPERATURE = 0.0
+TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", os.getenv("TEMPERATURE", "0.0")))
 # Includes visible output tokens plus GPT-5 reasoning tokens. Override from the
 # shell with MAX_COMPLETION_TOKENS if you need a smaller/larger cap.
 MAX_TOKENS = int(os.getenv("MAX_COMPLETION_TOKENS", "16000"))

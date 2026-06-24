@@ -320,13 +320,9 @@ Training exemplars in the user prompt now include **all ground-truth labels** ne
 
 `RESUME_SCRIPT_VERSION` bumped to `approach1-3-v2` so prior checkpoints are invalidated after this prompt change.
 
-### Temperature parameter
+### LLM API sampling
 
-- **API default when omitted:** typically `1.0` (high sampling randomness).
-- **Pipeline default:** `TEMPERATURE=0` (env or `--temperature`) for deterministic JSON-only outputs.
-- Temperature is sent in every chat completion payload, logged at startup, and stored in resume fingerprints.
-
-Use **low temperature (0–0.2)** for production runs; raise only for exploratory ablations.
+Chat completion requests omit the deprecated `temperature` parameter. Sampling behavior follows the deployment default.
 
 ### HTML results review report
 
@@ -393,7 +389,6 @@ pytest tests/approach1/ -v   # 34 tests: schema, prompts, splits, metrics, MRI h
 
 | Flag | Purpose |
 | ---- | ------- |
-| `--temperature` | Sampling temperature (default `0`) |
 | `--results-report-only` | Build HTML report from existing artifacts; no API calls |
 
 ### Where to edit (additions)
@@ -403,4 +398,30 @@ pytest tests/approach1/ -v   # 34 tests: schema, prompts, splits, metrics, MRI h
 | HTML report layout / captions | `approach1/evaluation/html_report.py`, `results_report.py` |
 | Flowchart | `docs/approach1_pipeline_flowchart.mmd`, `scripts/generate_approach1_flowchart.py` |
 | Few-shot label text | `approach1/prompts/templates.py` |
-| Temperature default | `approach1/config.py`, `approach1/api/client.py` |
+
+---
+
+## 2026-06-24 — Remove deprecated LLM `temperature` setting
+
+### Summary
+
+Reverted Approach 1 chat-completions payloads to omit the deprecated `temperature` parameter. Removed CLI flag, env/config constant, resume fingerprint field, and related logging.
+
+### Files changed
+
+| File | Changes |
+| ---- | ------- |
+| `approach1/config.py` | Removed `TEMPERATURE` constant and env var |
+| `approach1/api/client.py` | Removed `temperature` from payload and request log |
+| `approach1/cli.py` | Removed `--temperature` and startup assignment |
+| `approach1/checkpoint/fingerprint.py` | Removed `temperature` from config fingerprint |
+| `approach1/__init__.py` | Removed `TEMPERATURE` export |
+| `README.md` | Removed `TEMPERATURE` env and `--temperature` flag docs |
+
+### Verification
+
+```bash
+cd pipeline
+grep -ri temperature approach1 approach2 tests/approach1 tests/approach2
+SANDBOX_API_KEY=dummy .venv/bin/python -m pytest tests/approach1 tests/approach2 -q
+```

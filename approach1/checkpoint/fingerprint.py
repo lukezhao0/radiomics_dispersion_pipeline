@@ -21,7 +21,6 @@ def build_config_fingerprint(rc: RunConfig) -> Dict[str, Any]:
         "skipped_missing_mri_rows": [idx for idx, _ in rc.skipped_missing_mri],
         "deployment": config.DEPLOYMENT,
         "max_tokens": config.MAX_TOKENS,
-        "temperature": config.TEMPERATURE,
     }
 
 

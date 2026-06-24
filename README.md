@@ -113,7 +113,7 @@ Set credentials in a `.env` file at the project root (or pass `SANDBOX_ENV_PATH`
 SANDBOX_API_KEY=your_key_here
 ```
 
-Optional: `MAX_COMPLETION_TOKENS`, `REASONING_EFFORT`, `TEMPERATURE` (default `0` for deterministic JSON), `SANDBOX_ENV_PATH`.
+Optional: `MAX_COMPLETION_TOKENS`, `REASONING_EFFORT`, `SANDBOX_ENV_PATH`.
 
 ## Quick start
 
@@ -130,7 +130,7 @@ python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1
 python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1 -y
 ```
 
-Common flags: `--resume` / `--no-resume`, `--skip-completed-configs`, `--force-rerun-cases`, `--skip-preflight`, `--temperature`, `--results-report-only`.
+Common flags: `--resume` / `--no-resume`, `--skip-completed-configs`, `--force-rerun-cases`, `--skip-preflight`, `--results-report-only`.
 
 Regenerate the HTML review page without API calls:
 

@@ -1145,3 +1145,33 @@ grep -q approach2_pipeline_flowchart.png README.md
 
 Not run: live API pipeline, browser `--open` smoke test.
 
+---
+
+## 2026-06-24 — Remove deprecated LLM `temperature` setting
+
+### Summary
+
+Reverted Approach 2 chat-completions payloads to omit the deprecated `temperature` parameter. Removed CLI flag, env/config constants, resume fingerprint field, a-priori estimate field, and related logging.
+
+### Files changed
+
+| File | Changes |
+|------|---------|
+| `approach2/extraction/config.py` | Removed `TEMPERATURE` / `LLM_TEMPERATURE` / `TEMPERATURE` env wiring |
+| `approach2/api/client.py` | Removed `temperature` from payload, function parameter, and logs |
+| `approach2/cli.py` | Removed `--temperature`, config override, startup log, estimate field |
+| `approach2/checkpoint.py` | Removed `temperature` from split resume fingerprint |
+| `approach2/api/cost.py` | Removed a-priori temperature print |
+| `tests/approach2/test_api_client.py` | Assert payload omits `temperature` |
+| `tests/approach2/test_resume_fingerprint.py` | Dropped `temperature` from test args |
+| `README.md` | Removed `TEMPERATURE` env and `--temperature` flag docs |
+
+### Verification
+
+```bash
+cd pipeline
+grep -ri temperature approach1 approach2 tests/approach1 tests/approach2
+SANDBOX_API_KEY=dummy .venv/bin/python -m pytest tests/approach1 tests/approach2 -q
+```
+
+Note: existing `COMPLETED.json` checkpoints that include `temperature` in the fingerprint may be treated as incompatible on resume (fingerprint keys no longer include `temperature`).

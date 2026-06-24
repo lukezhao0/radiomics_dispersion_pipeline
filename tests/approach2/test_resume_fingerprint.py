@@ -23,7 +23,6 @@ def _args(**kwargs):
         random_seed=17,
         stability_threshold=0.35,
         target_stable_features_per_modality=0,
-        temperature=0.0,
         modalities=["mri", "path"],
         representations=["group_binary"],
     )

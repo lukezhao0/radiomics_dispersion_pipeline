@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 
-def test_api_client_passes_temperature_in_payload() -> None:
+def test_api_client_omits_temperature_in_payload() -> None:
     import approach2.api.client as client_mod
 
     mock_response = MagicMock()
@@ -22,9 +22,9 @@ def test_api_client_passes_temperature_in_payload() -> None:
         return mock_response
 
     with patch.object(client_mod.requests, "post", side_effect=_capture_post):
-        client_mod._post_chat_completion([{"role": "user", "content": "hi"}], temperature=0.0)
+        client_mod._post_chat_completion([{"role": "user", "content": "hi"}])
 
-    assert captured.get("temperature") == 0.0
+    assert "temperature" not in captured
 
 
 def test_call_securegpt_chat_resolves_token_estimate() -> None:

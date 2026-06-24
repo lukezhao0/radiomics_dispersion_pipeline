@@ -119,7 +119,6 @@ from approach2.orchestration import (
 )
 from approach2.splits import build_outer_splits, log_outer_split_summary, validate_outer_splits
 from approach2.api.cost import write_apriori_cost_estimate_json
-from approach2.extraction.config import TEMPERATURE as DEFAULT_LLM_TEMPERATURE
 from approach2.reports import (
     generate_all_reports,
     pathology_metrics_on_mri_complete,
@@ -223,12 +222,6 @@ def main() -> None:
     parser.add_argument("--ml-n-jobs", type=int, default=2, help="Number of local CPU workers for GridSearchCV in the classical ML stage after fold/modality coordination.")
     parser.add_argument("--random-seed", type=int, default=RANDOM_SEED, help="Base random seed.")
     parser.add_argument(
-        "--temperature",
-        type=float,
-        default=DEFAULT_LLM_TEMPERATURE,
-        help="LLM sampling temperature for extraction API calls (default 0.0 for deterministic outputs).",
-    )
-    parser.add_argument(
         "--no-resume",
         dest="resume",
         action="store_false",
@@ -281,9 +274,6 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    import approach2.extraction.config as extraction_config
-    extraction_config.TEMPERATURE = float(args.temperature)
-
     args.max_api_workers = resolve_default_api_workers(args.max_api_workers)
     args.parallel_modality_workers = resolve_default_parallel_modality_workers(args.parallel_modality_workers)
     args.ml_n_jobs = resolve_default_ml_n_jobs(args.ml_n_jobs)
@@ -320,8 +310,7 @@ def main() -> None:
                 f"[CONFIG] outer_scheme={args.outer_scheme} outer_repeats={args.outer_repeats} "
                 f"outer_test_frac={args.outer_test_frac} outer_folds={args.outer_folds} "
                 f"stability_threshold={args.stability_threshold} "
-                f"target_stable_features_per_modality={args.target_stable_features_per_modality} "
-                f"temperature={args.temperature}"
+                f"target_stable_features_per_modality={args.target_stable_features_per_modality}"
             )
             print(f"[LOAD] Reading raw CSV: {args.csv_path}")
             raw_df = load_cases(args.csv_path)
@@ -354,7 +343,6 @@ def main() -> None:
             )
 
             estimate = estimate_nested_pipeline_llm_cost(raw_df, target_df, outer_splits, args)
-            estimate["temperature"] = float(args.temperature)
             print_apriori_cost_estimate_report(estimate, label="nested outer-training extraction pipeline")
             print(f"[A-PRIORI] n_outer_splits={estimate['n_outer_splits']} completed_splits_skipped={estimate['n_completed_splits_skipped_in_estimate']} planned_report_modes={estimate['planned_report_modes']}")
             write_apriori_cost_estimate_json(args.out_dir, estimate, label="nested outer-training extraction pipeline")

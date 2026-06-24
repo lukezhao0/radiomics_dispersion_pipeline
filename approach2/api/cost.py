@@ -336,8 +336,6 @@ def print_apriori_cost_estimate_report(estimate: Dict[str, Any], label: str = "p
     print(f"cache_aware_estimated_cost:    ${estimate['cache_aware_estimated_cost_usd']:.8f}")
     print(f"cache_aware_cached_tokens:     {estimate['cache_aware_estimated_cached_tokens']}")
     print(f"cache_aware_cache_savings:     ${estimate['cache_aware_estimated_cache_savings_usd']:.8f}")
-    if "temperature" in estimate:
-        print(f"temperature:                   {estimate['temperature']}")
     print("[A-PRIORI NOTE] This uses the full prompts that will be sent, plus the configured completion-token cap. Actual cost is recomputed from API usage after each call.")
 
 

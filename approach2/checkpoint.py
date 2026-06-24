@@ -38,7 +38,6 @@ def build_split_resume_fingerprint(args: Any, split_id: str) -> Dict[str, Any]:
         "target_stable_features_per_modality": int(
             getattr(args, "target_stable_features_per_modality", 0) or 0
         ),
-        "temperature": float(getattr(args, "temperature", 0.0) or 0.0),
         "modalities": sorted(getattr(args, "modalities", []) or []),
         "representations": sorted(getattr(args, "representations", []) or []),
     }
@@ -59,7 +58,6 @@ def split_resume_fingerprints_compatible(
         "random_seed",
         "stability_threshold",
         "target_stable_features_per_modality",
-        "temperature",
         "modalities",
         "representations",
     ]

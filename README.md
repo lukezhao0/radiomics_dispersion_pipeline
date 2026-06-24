@@ -58,6 +58,7 @@ flowchart TD
     P --> Q[Generate plots + HTML reports]
 ```
 
+<!--
 #### Leakage-aware design
 
 - Outer splits are saved with provenance manifests under `outer_splits/outer_split_NNN/`.
@@ -95,7 +96,7 @@ flowchart TD
 
 - Python ≥ 3.10
 - Stanford AI Sandbox API key (`SANDBOX_API_KEY`)
-- Input CSV with case-level MRI/pathology report text and outcome columns (see each pipeline's expected schema)
+- Input CSV with case-level MRI/pathology report text and outcome columns (see each pipeline's expected schema) -->
 
 ## Installation
 

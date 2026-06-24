@@ -70,6 +70,7 @@ from approach2.extraction import (
     _is_missing_text,
     _selected_report_text,
     _true_dispersion_high_low,
+    build_chat_messages,
     build_html_report,
     build_user_prompt,
     confirm_cost_estimate_or_exit,
@@ -112,14 +113,20 @@ from approach2.evaluation.plots import (
     plot_relapse_metric_comparison,
     plot_regression_correlation_comparison,
     plot_regression_error_comparison,
+    rank_features_across_models,
+    summarize_coefficient_sign_stability,
 )
 from approach2.features.normalize import ontology_table
 from approach2.models_ml import get_model_specs
 from approach2.orchestration import (
+    _empty_split_result,
+    _extend_aggregate_tables,
+    _split_resume_marker,
     coordinate_parallelism,
     compute_metrics_from_predictions,
     deduplicate_outer_predictions,
     run_one_outer_split,
+    write_failed_split_marker,
 )
 from approach2.splits import build_outer_splits
 from approach2.reports import (

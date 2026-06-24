@@ -16,6 +16,27 @@ Both pipelines use the Stanford Health Care AI Sandbox (GPT-5-nano Global) for L
 
 **Approach 1** runs a SecureGPT few-shot evaluation across shot sets and modality tiers (MRI, pathology, combined). It predicts continuous dispersion, binary high/low dispersion, and relapse status directly from report text.
 
+### Approach 1 pipeline overview
+
+```mermaid
+flowchart TD
+    A[Load CSV cases] --> B[Select shot set: 2 high + 2 low exemplars]
+    B --> C[Exclude exemplar rows from held-out test]
+    C --> D{Modality tier?}
+    D -->|mri_only or mri+path| E[Drop MRI-missing test cases]
+    D -->|pathology_only| F[Keep all pathology cases]
+    E --> G[Build few-shot prompt per test case]
+    F --> G
+    G --> H[SecureGPT predict JSON]
+    H --> I[Validate schema + retry]
+    I --> J[Save predictions JSONL/CSV]
+    J --> K[Evaluate metrics vs ground truth]
+```
+
+![Approach 1 pipeline flowchart](docs/approach1_pipeline_flowchart.png)
+
+*Figure: Approach 1 few-shot prediction pipeline (same structure as the Mermaid diagram above). Regenerate the PNG with `python scripts/generate_approach1_flowchart.py`; source: `docs/approach1_pipeline_flowchart.mmd`.*
+
 **Approach 2** is a nested outer/inner evaluation framework. It extracts quote-grounded lexical features from MRI and pathology reports, discovers stable lexicons within training folds only, trains supervised models for dispersion regression/classification and relapse prediction, and supports pathology-informed MRI calibration, teacher–student pathways, automated reports, and fold-level parallelism.
 
 ## Requirements
@@ -39,7 +60,7 @@ Set credentials in a `.env` file at the project root (or pass `SANDBOX_ENV_PATH`
 SANDBOX_API_KEY=your_key_here
 ```
 
-Optional: `MAX_COMPLETION_TOKENS`, `REASONING_EFFORT`, `SANDBOX_ENV_PATH`.
+Optional: `MAX_COMPLETION_TOKENS`, `REASONING_EFFORT`, `TEMPERATURE` (default `0` for deterministic JSON), `SANDBOX_ENV_PATH`.
 
 ## Quick start
 
@@ -56,7 +77,13 @@ python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1
 python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1 -y
 ```
 
-Common flags: `--resume` / `--no-resume`, `--skip-completed-configs`, `--force-rerun-cases`, `--skip-preflight`.
+Common flags: `--resume` / `--no-resume`, `--skip-completed-configs`, `--force-rerun-cases`, `--skip-preflight`, `--temperature`, `--results-report-only`.
+
+Regenerate the HTML review page without API calls:
+
+```bash
+python approach1.py --results-report-only --outdir ./outputs/approach1
+```
 
 ### Approach 2 — nested lexical + ML evaluation
 
@@ -95,6 +122,11 @@ pipeline/
 ├── README.md
 ├── pyproject.toml              # onc-pipeline package (approach1 + approach2)
 ├── approach1.py                # thin CLI shim → approach1.cli
+├── scripts/
+│   └── generate_approach1_flowchart.py
+├── docs/
+│   ├── approach1_pipeline_flowchart.mmd
+│   └── approach1_pipeline_flowchart.png
 ├── approach1/                  # few-shot prediction package
 │   ├── cli.py
 │   ├── orchestration.py
@@ -152,7 +184,7 @@ SANDBOX_API_KEY=dummy python approach2_aux.py --help
 
 ## Outputs and logging
 
-- **Approach 1** writes per-config predictions, evaluation plots, and `token_cost_report.json` under `--outdir`.
+- **Approach 1** writes per-config predictions, evaluation plots, `token_cost_report.json`, and a consolidated **`approach1_results_report.html`** under `--outdir`.
 - **Approach 2** writes nested CV artifacts under `--out_dir`, including per-split lexicons, predictions, metrics (`nested_outer_metrics_summary.csv`), automated reports (`automated_results_report.md`), interpretability summaries, and logs under `logs/`.
 - **Standalone extraction** writes per-case JSON/CSV extractions and `llm_token_cost_report.json`.
 

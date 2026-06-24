@@ -1,0 +1,12 @@
+flowchart TD
+    A[Load CSV cases] --> B[Select shot set: 2 high + 2 low exemplars]
+    B --> C[Exclude exemplar rows from held-out test]
+    C --> D{Modality tier?}
+    D -->|mri_only or mri+path| E[Drop MRI-missing test cases]
+    D -->|pathology_only| F[Keep all pathology cases]
+    E --> G[Build few-shot prompt per test case]
+    F --> G
+    G --> H[SecureGPT predict JSON]
+    H --> I[Validate schema + retry]
+    I --> J[Save predictions JSONL/CSV]
+    J --> K[Evaluate metrics vs ground truth]

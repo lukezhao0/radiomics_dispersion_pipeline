@@ -311,12 +311,16 @@ def confirm_cost_estimate_or_exit(estimate: Dict[str, Any], assume_yes: bool = F
     if assume_yes:
         print("[CONFIRM] --yes supplied; continuing without interactive cost confirmation.")
         return
-    if not sys.stdin.isatty():
+    if not sys.__stdin__.isatty():
         raise RuntimeError(
             "Interactive cost confirmation is required but stdin is not a TTY. "
             "Rerun with --yes after reviewing the printed a-priori estimate."
         )
-    reply = input("Continue with LLM extraction calls? Type YES to continue: ").strip()
+    prompt = "Continue with LLM extraction calls? Type YES to continue: "
+    # Use the real terminal streams so confirmation works even when stdout is teed.
+    sys.__stdout__.write(prompt)
+    sys.__stdout__.flush()
+    reply = sys.__stdin__.readline().strip()
     if reply != "YES":
         print("[ABORT] User did not type YES; exiting before LLM extraction calls.")
         raise SystemExit(1)

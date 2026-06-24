@@ -31,7 +31,11 @@ def test_make_case_token_differs_by_modality():
 
 
 def test_build_user_prompt_golden_hash(sample_case: Case):
-    training_block = build_training_block([sample_case], modality="mri_plus_pathology")
+    training_block = build_training_block(
+        [(10, sample_case)],
+        modality="mri_plus_pathology",
+        high_rows={10},
+    )
     prompt = build_user_prompt(training_block, sample_case, row_index=10, modality="mri_plus_pathology")
     digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
     # Golden hash — update only if prompt text intentionally changes
@@ -42,8 +46,36 @@ def test_build_user_prompt_golden_hash(sample_case: Case):
     assert digest  # snapshot anchor; regression guard via structure checks above
 
 
+def test_build_training_block_includes_labeled_outcomes(sample_case: Case):
+    low_case = Case(
+        case_id="SYNTH_LOW",
+        preop_mri="mri low",
+        path_report="path low",
+        index_side="right",
+        dispersion_true=40.0,
+        relapse_true=0,
+    )
+    block = build_training_block(
+        [(0, sample_case), (101, low_case)],
+        modality="mri_plus_pathology",
+        high_rows={0},
+    )
+    assert "exemplar_dispersion_band: high dispersion" in block
+    assert "dispersion_score_true: 120.0" in block
+    assert "dispersion_high_low_true: 1" in block
+    assert "relapse_true: 1" in block
+    assert "exemplar_dispersion_band: low dispersion" in block
+    assert "dispersion_score_true: 40.0" in block
+    assert "dispersion_high_low_true: 0" in block
+    assert "relapse_true: 0" in block
+
+
 def test_build_user_prompt_mri_only_omits_pathology(sample_case: Case):
-    training_block = build_training_block([sample_case], modality="mri_only")
+    training_block = build_training_block(
+        [(3, sample_case)],
+        modality="mri_only",
+        high_rows={3},
+    )
     prompt = build_user_prompt(training_block, sample_case, row_index=3, modality="mri_only")
     assert "<NOT PROVIDED IN THIS TIER>" in prompt
     assert "MRI only" in prompt

@@ -7,14 +7,33 @@ import re
 from typing import Any, List, Optional
 
 import numpy as np
+import pandas as pd
 from sklearn.metrics import mean_squared_error
 
 from .config import STOPWORDS
+
+# Case-insensitive placeholders treated as absent report text.
+_MISSING_REPORT_PLACEHOLDERS = frozenset({
+    "nan",
+    "none",
+    "null",
+    "na",
+    "n/a",
+    "missing",
+    "<na>",
+    "not available",
+    "not applicable",
+})
 
 
 def safe_text(x: Any) -> str:
     if x is None:
         return ""
+    try:
+        if pd.isna(x):
+            return ""
+    except (TypeError, ValueError):
+        pass
     if isinstance(x, float) and np.isnan(x):
         return ""
     return str(x)
@@ -24,7 +43,7 @@ def has_report_text(x: Any) -> bool:
     s = safe_text(x).strip()
     if not s:
         return False
-    return s.lower() not in {"nan", "none", "null", "na", "n/a"}
+    return s.lower() not in _MISSING_REPORT_PLACEHOLDERS
 
 
 def shorten_for_prompt(text: str) -> str:

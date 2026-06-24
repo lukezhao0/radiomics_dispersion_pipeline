@@ -20,9 +20,13 @@ MAX_RETRIES = 3
 BACKOFF_BASE_S = 1.5
 RATE_LIMIT_SLEEP_S = 0.25
 
+# Low temperature for deterministic JSON-only outputs. API default is typically 1.0
+# when omitted; 0.0 maximizes schema consistency for structured clinical predictions.
+TEMPERATURE = float(os.getenv("TEMPERATURE", "0"))
+
 DISPERSION_HIGH_THRESHOLD = 85.0
 RESUME_CHECKPOINT_SUBDIR = "_resume_checkpoint"
-RESUME_SCRIPT_VERSION = "approach1-3-v1"
+RESUME_SCRIPT_VERSION = "approach1-3-v2"
 
 SHOT_SETS = [
     {

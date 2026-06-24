@@ -12,10 +12,14 @@ from .metrics import (
 )
 from .plots import plot_dispersion_scatter
 from .runner import evaluate_and_plot, explanation_text
+from .results_report import REPORT_FILENAME, build_approach1_results_html, discover_config_dirs
 
 __all__ = [
     "evaluate_and_plot",
     "explanation_text",
+    "build_approach1_results_html",
+    "discover_config_dirs",
+    "REPORT_FILENAME",
     "prepare_predictions_for_eval",
     "evaluate_dispersion",
     "evaluate_dispersion_high_low",

@@ -25,8 +25,9 @@ from ..extraction.config import (
 from ..api.cost import (
     GLOBAL_API_SEMAPHORE,
     build_chat_messages,
-    update_cost_tracker,
+    estimate_prompt_tokens_from_messages,
     estimate_cost_from_usage,
+    update_cost_tracker,
 )
 
 # -----------------------------

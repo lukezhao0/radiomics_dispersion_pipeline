@@ -102,7 +102,7 @@ The monolithic `approach1.py` (~2,500 lines) was split into the `approach1/` Pyt
 | Entry point      | Single `approach1.py` file                          | `approach1.py` (thin CLI) + `approach1/cli.py`                       |
 | Implementation   | All logic in one file                               | Modular package (see layout below)                                   |
 | API / cost state | Module-level globals (`API_KEY`, `COST_TRACKER`, …) | `SecureGPTClient` + `CostTracker` classes with backward-compat shims |
-| Tests            | None in `pipeline/`                                 | `tests/approach1/` (16 unit tests)                                   |
+| Tests            | None in `pipeline/`                                 | `tests/approach1/` (34 unit tests)                                   |
 | Dependencies     | Implicit                                            | `pyproject.toml` with pinned ranges                                  |
 
 ### Package layout
@@ -138,10 +138,9 @@ pipeline/
 
 ### Deferred (not yet implemented)
 
-These were intentionally skipped to avoid silent behavior changes:
-
-- `PROMPT_VERSION` / prompt-hash in checkpoint fingerprints
+- Verbatim evidence-quote substring validation against input reports
 - PHI-safe log redaction (case IDs and API error bodies still appear in `run.log`)
+- Per-case API cost fields in output artifacts
 - Consolidating the duplicate copy at `sabcs/approach1-3.py`
 
 ---
@@ -258,3 +257,150 @@ Before merging scientific changes:
 ### Note on `sabcs/approach1-3.py`
 
 A byte-identical copy of the pre-refactor monolith may still exist under `sabcs/`. **Use `pipeline/approach1.py` or `import approach1` from the `pipeline/` directory** as the canonical entry point. The `sabcs/` copy should be updated or removed in a follow-up to avoid drift.
+
+---
+
+## Comprehensive audit and hardening (2026-06-23)
+
+A full review compared the refactored `pipeline/approach1/` package against `sabcs/approach1-3.py` and the intended research workflow.
+
+### Audit conclusion
+
+The refactored implementation is **functionally equivalent** to `approach1-3.py` for core behavior: CSV loading, 2+2 few-shot shot sets, three modality tiers, held-out evaluation, JSON schema validation with retries, cost tracking, resume/checkpoints, and evaluation metrics/plots. No major regressions were found in the execution path.
+
+**Intentional design notes (not bugs):**
+
+- Shot sets use **2 high + 2 low** exemplar rows (4 total), not 3+3.
+- Few-shot exemplars originally included only `dispersion_score_true` and `relapse_true`; explicit high/low labels were added in the prompt-labeling update below.
+- Verbatim evidence quotes are required in the prompt but **not** programmatically validated as substrings of input reports (same as the monolith).
+- Per-case API cost is not saved; only aggregate `token_cost_report.json` per config.
+
+### Missing MRI handling fix
+
+`has_report_text` and `safe_text` were hardened:
+
+- `pd.NA` / `numpy.nan` now normalize to empty text.
+- Placeholder strings such as `missing`, `<na>`, `not available` are treated as absent MRI/pathology text.
+
+MRI-missing held-out cases are skipped for `mri_only` and `mri_plus_pathology` but remain eligible for `pathology_only`. Tests: `tests/approach1/test_missing_mri.py`.
+
+### Pipeline flowchart documentation
+
+A simplified top-down flowchart (matching the Approach 2 Mermaid style) documents the workflow:
+
+- Mermaid source: `docs/approach1_pipeline_flowchart.mmd`
+- PNG generator: `scripts/generate_approach1_flowchart.py`
+- Rendered image: `docs/approach1_pipeline_flowchart.png`
+
+```mermaid
+flowchart TD
+    A[Load CSV cases] --> B[Select shot set: 2 high + 2 low exemplars]
+    B --> C[Exclude exemplar rows from held-out test]
+    C --> D{Modality tier?}
+    D -->|mri_only or mri+path| E[Drop MRI-missing test cases]
+    D -->|pathology_only| F[Keep all pathology cases]
+    E --> G[Build few-shot prompt per test case]
+    F --> G
+    G --> H[SecureGPT predict JSON]
+    H --> I[Validate schema + retry]
+    I --> J[Save predictions JSONL/CSV]
+    J --> K[Evaluate metrics vs ground truth]
+```
+
+### Few-shot exemplar label annotations
+
+Training exemplars in the user prompt now include **all ground-truth labels** needed for in-context learning:
+
+| Field | Description |
+| ----- | ----------- |
+| `exemplar_dispersion_band` | `high dispersion` or `low dispersion` (from shot-set row assignment) |
+| `dispersion_score_true` | Numeric ground-truth dispersion score |
+| `dispersion_high_low_true` | `0` or `1` using cutoff >= 85 |
+| `relapse_true` | `0` or `1` with inline legend |
+
+`RESUME_SCRIPT_VERSION` bumped to `approach1-3-v2` so prior checkpoints are invalidated after this prompt change.
+
+### Temperature parameter
+
+- **API default when omitted:** typically `1.0` (high sampling randomness).
+- **Pipeline default:** `TEMPERATURE=0` (env or `--temperature`) for deterministic JSON-only outputs.
+- Temperature is sent in every chat completion payload, logged at startup, and stored in resume fingerprints.
+
+Use **low temperature (0–0.2)** for production runs; raise only for exploratory ablations.
+
+### HTML results review report
+
+A consolidated, self-contained HTML report is generated at the end of each full pipeline run:
+
+- **Output:** `<outdir>/approach1_results_report.html`
+- **Regenerate only:** `python approach1.py --results-report-only --outdir <path>`
+
+The report is intended for readers unfamiliar with the codebase. It includes:
+
+1. **Overview** — what Approach 1 does and how to read the report.
+2. **Aggregate metrics** — `all_tiers_metrics_summary.csv` as a table.
+3. **Per shot-set / modality sections** — each with:
+   - Run configuration (training rows, test count, skipped MRI cases)
+   - Headline metric cards (MAE, RMSE, Spearman, accuracy, F1, needle retrieval)
+   - Relapse predictor comparison table
+   - Token/cost summary
+   - All diagnostic PNG plots with captions
+   - Per-case prediction preview (truncated reasoning)
+   - Evidence attribution CSV previews
+   - Full text metrics report
+4. **Metric glossary** — from `evaluation_explanation.txt` content.
+
+Implementation: `approach1/evaluation/html_report.py` (styling helpers) and `approach1/evaluation/results_report.py` (artifact scanner and builder). Tests: `tests/approach1/test_results_report.py`.
+
+### Cost estimation (verified behavior)
+
+| Stage | Behavior |
+| ----- | -------- |
+| A-priori | Builds real `build_user_prompt` per test case; estimates tokens via tiktoken; separate input/output; cached-token heuristic from common prompt prefix |
+| Post-run | Uses API `usage` fields including `cached_tokens` and `reasoning_tokens` |
+| Retries | Each API call accumulates cost (including failed validation retries) |
+| Prices | Hardcoded in `config.py` (`PRICE_PER_1M_*`) |
+
+### Test coverage (current)
+
+```bash
+pytest tests/approach1/ -v   # 34 tests: schema, prompts, splits, metrics, MRI handling, HTML report
+```
+
+### Updated output directory structure
+
+```
+<outdir>/
+├── run.log
+├── all_tiers_metrics_summary.csv
+├── approach1_results_report.html          # NEW: consolidated HTML review
+└── <shotset_name>/
+    └── <modality>/
+        ├── run_config.json
+        ├── predictions_testing_cases.jsonl
+        ├── predictions_testing_cases.csv
+        ├── evaluation_metrics_summary.json
+        ├── evaluation_metrics_from_csv.txt
+        ├── evaluation_explanation.txt
+        ├── token_cost_report.json
+        ├── skipped_cases_missing_mri.csv   # MRI tiers only, if applicable
+        ├── *.png                           # diagnostic plots
+        ├── evidence_attribution_*.csv
+        └── _resume_checkpoint/COMPLETED.json
+```
+
+### Updated CLI flags
+
+| Flag | Purpose |
+| ---- | ------- |
+| `--temperature` | Sampling temperature (default `0`) |
+| `--results-report-only` | Build HTML report from existing artifacts; no API calls |
+
+### Where to edit (additions)
+
+| Task | Module |
+| ---- | ------ |
+| HTML report layout / captions | `approach1/evaluation/html_report.py`, `results_report.py` |
+| Flowchart | `docs/approach1_pipeline_flowchart.mmd`, `scripts/generate_approach1_flowchart.py` |
+| Few-shot label text | `approach1/prompts/templates.py` |
+| Temperature default | `approach1/config.py`, `approach1/api/client.py` |

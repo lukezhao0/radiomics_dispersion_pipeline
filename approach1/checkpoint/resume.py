@@ -100,11 +100,6 @@ def load_completed_config_checkpoint(
         )
         return None
 
-    pred_csv = marker.get("predictions_csv") or os.path.join(run_out_dir, "predictions_testing_cases.csv")
-    if not os.path.isfile(pred_csv):
-        print(f"[RESUME] Completed marker exists but predictions CSV is missing: {pred_csv}")
-        return None
-
     pred_df = predictions_dict_to_dataframe(by_row, rc)
     metrics_json = marker.get("metrics_json") or os.path.join(run_out_dir, "evaluation_metrics_summary.json")
     eval_summary: Dict[str, Any] = {}

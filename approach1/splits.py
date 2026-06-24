@@ -56,8 +56,11 @@ def build_run_configs(df: pd.DataFrame, root_out_dir: str) -> List[RunConfig]:
 
         for modality in MODALITY_TIERS:
             validate_training_modality_availability(training_cases_with_idxs, modality)
-            training_cases = [c for _, c in training_cases_with_idxs]
-            training_block = build_training_block(training_cases, modality)
+            training_block = build_training_block(
+                training_cases_with_idxs,
+                modality,
+                high_rows=set(high_rows),
+            )
 
             test_idxs_all = [i for i in all_idxs if i not in set(training_rows)]
             test_cases_with_idxs: List[Tuple[int, Case]] = []

@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional, Set, Tuple
 
+from .. import config
 from ..models import Case
 from ..text_utils import modality_display_name, shorten_for_prompt
 from .descriptors import DESCRIPTORS_TEXT
 from .tokens import make_case_token
+
+
+def dispersion_high_low_true(score: Optional[float]) -> Optional[int]:
+    if score is None:
+        return None
+    return int(float(score) >= config.DISPERSION_HIGH_THRESHOLD)
+
+
+def exemplar_dispersion_band(row_index: int, high_rows: Set[int]) -> str:
+    return "high dispersion" if row_index in high_rows else "low dispersion"
 
 
 def report_fields_for_prompt(c: Case, modality: str) -> str:
@@ -24,16 +35,25 @@ def report_fields_for_prompt(c: Case, modality: str) -> str:
     return "\n\n".join(parts)
 
 
-def build_training_block(train_cases: List[Case], modality: str) -> str:
+def build_training_block(
+    train_cases_with_idxs: List[Tuple[int, Case]],
+    modality: str,
+    *,
+    high_rows: Set[int],
+) -> str:
     blocks: List[str] = []
     modality_name = modality_display_name(modality)
-    for i, c in enumerate(train_cases, 1):
+    for i, (row_index, c) in enumerate(train_cases_with_idxs, 1):
+        dhl = dispersion_high_low_true(c.dispersion_true)
+        band = exemplar_dispersion_band(row_index, high_rows)
         blocks.append(
-            f"EXAMPLE {i} (LABELED; {modality_name})\n"
+            f"EXAMPLE {i} (LABELED {band} exemplar; {modality_name})\n"
             f"case_id: {c.case_id}\n"
             f"index_side: {c.index_side}\n"
+            f"exemplar_dispersion_band: {band}\n"
             f"dispersion_score_true: {c.dispersion_true}\n"
-            f"relapse_true: {c.relapse_true}\n"
+            f"dispersion_high_low_true: {dhl}  (1=high if score >= {int(config.DISPERSION_HIGH_THRESHOLD)}, else 0=low)\n"
+            f"relapse_true: {c.relapse_true}  (1=relapsing, 0=non-relapsing)\n"
             f"{report_fields_for_prompt(c, modality)}\n"
         )
     return "\n\n".join(blocks)

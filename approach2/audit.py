@@ -89,6 +89,7 @@ from approach2.extraction import (
     write_cost_tracker_json,
     write_extractions,
 )
+from approach2.eval_data import ensure_case_id
 from approach2.io_atomic import atomic_write_df as _atomic_write_df
 from approach2.io_atomic import safe_read_csv_if_exists as _safe_read_csv_if_exists
 from approach2.metrics import calibration_intercept_slope, rmse, safe_pearson, safe_spearman

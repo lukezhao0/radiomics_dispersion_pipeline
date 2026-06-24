@@ -57,7 +57,10 @@ class SecureGPTClient:
         config.API_VERSION = api_version
 
     def chat(self, prompt: str, max_completion_tokens: int = config.MAX_TOKENS) -> str:
-        print(f"[API] Sending request... prompt_chars={len(prompt)}")
+        print(
+            f"[API] Sending request... prompt_chars={len(prompt)} "
+            f"temperature={config.TEMPERATURE}"
+        )
         payload = {
             "model": self.deployment,
             "messages": [
@@ -65,6 +68,7 @@ class SecureGPTClient:
                 {"role": "user", "content": prompt},
             ],
             "max_completion_tokens": max_completion_tokens,
+            "temperature": config.TEMPERATURE,
         }
 
         t0 = time.time()

@@ -105,10 +105,12 @@ from approach2.text_utils import (
     resolve_default_parallel_modality_workers,
 )
 
-from approach2.eval_data import _mri_missing_row_indices
+from approach2.eval_data import _mri_missing_row_indices, _raw_df_with_row_index
 from approach2.evaluation.plots import (
+    _metric_bar_figure_size,
     _metric_plot_label,
     _plot_metric_bars,
+    _save_figure,
     plot_classification_comparison,
     plot_relapse_curves,
     plot_relapse_metric_comparison,

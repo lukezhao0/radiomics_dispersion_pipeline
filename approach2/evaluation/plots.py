@@ -200,7 +200,13 @@ def _plot_metric_bars(labels: Sequence[str], values: Sequence[float], ylabel: st
     _save_figure(out_png, fig)
 
 
+def _has_task_type_column(metrics_df: pd.DataFrame) -> bool:
+    return len(metrics_df) > 0 and "task_type" in metrics_df.columns
+
+
 def plot_classification_comparison(metrics_df: pd.DataFrame, out_png: str) -> None:
+    if not _has_task_type_column(metrics_df):
+        return
     df = metrics_df[metrics_df["task_type"] == "classification"].copy()
     if len(df) == 0 or "auroc" not in df.columns:
         return
@@ -215,7 +221,7 @@ def plot_classification_comparison(metrics_df: pd.DataFrame, out_png: str) -> No
 
 
 def plot_relapse_metric_comparison(metrics_df: pd.DataFrame, out_png: str, metric: str) -> None:
-    if "target_name" not in metrics_df.columns:
+    if not _has_task_type_column(metrics_df) or "target_name" not in metrics_df.columns:
         return
     df = metrics_df[(metrics_df["task_type"] == "classification") & (metrics_df["target_name"] == TARGET_NAME_RELAPSE_STATUS)].copy()
     if len(df) == 0 or metric not in df.columns:
@@ -233,10 +239,10 @@ def plot_relapse_metric_comparison(metrics_df: pd.DataFrame, out_png: str, metri
 
 
 def plot_relapse_curves(pred_all: pd.DataFrame, metrics_df: pd.DataFrame, out_dir: str, top_n: int = 8) -> None:
-    if len(pred_all) == 0 or "target_name" not in pred_all.columns:
+    if len(pred_all) == 0 or "target_name" not in pred_all.columns or "task_type" not in pred_all.columns:
         return
     rel_pred = pred_all[(pred_all["task_type"] == "classification") & (pred_all["target_name"] == TARGET_NAME_RELAPSE_STATUS)].copy()
-    rel_metrics = metrics_df[(metrics_df["task_type"] == "classification") & (metrics_df["target_name"] == TARGET_NAME_RELAPSE_STATUS)].copy() if "target_name" in metrics_df.columns else pd.DataFrame()
+    rel_metrics = metrics_df[(metrics_df["task_type"] == "classification") & (metrics_df["target_name"] == TARGET_NAME_RELAPSE_STATUS)].copy() if _has_task_type_column(metrics_df) and "target_name" in metrics_df.columns else pd.DataFrame()
     if len(rel_pred) == 0 or len(rel_metrics) == 0:
         return
     rel_metrics = rel_metrics.sort_values(["auroc", "auprc"], ascending=[False, False]).head(top_n)
@@ -277,6 +283,8 @@ def plot_relapse_curves(pred_all: pd.DataFrame, metrics_df: pd.DataFrame, out_di
 
 
 def plot_regression_error_comparison(metrics_df: pd.DataFrame, out_png: str) -> None:
+    if not _has_task_type_column(metrics_df):
+        return
     df = metrics_df[metrics_df["task_type"] == "regression"].copy()
     if len(df) == 0 or "mae" not in df.columns:
         return
@@ -293,6 +301,8 @@ def plot_regression_error_comparison(metrics_df: pd.DataFrame, out_png: str) -> 
 
 
 def plot_regression_correlation_comparison(metrics_df: pd.DataFrame, out_png: str) -> None:
+    if not _has_task_type_column(metrics_df):
+        return
     df = metrics_df[metrics_df["task_type"] == "regression"].copy()
     if len(df) == 0 or "spearman_rho" not in df.columns:
         return

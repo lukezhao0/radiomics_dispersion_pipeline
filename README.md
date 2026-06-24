@@ -108,13 +108,21 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
-Set credentials in a `.env` file at the project root (or pass `SANDBOX_ENV_PATH` for approach 2 extraction):
+Set credentials in a `.env` file at the project root (or pass `SANDBOX_ENV_PATH` / `--env-path` for approach 2 extraction):
 
 ```bash
-SANDBOX_API_KEY=your_key_here
+SANDBOX_API_KEY=your_sandbox_key_here
+NEW_SECUREGPT_API_KEY=your_securegpt_key_here
 ```
 
-Optional: `MAX_COMPLETION_TOKENS`, `REASONING_EFFORT`, `SANDBOX_ENV_PATH`.
+Model selection controls both deployment name and API key:
+
+| `--model` | Deployment | API key env var |
+|-----------|------------|-----------------|
+| `gpt-5-nano` (default) | `gpt-5-nano` | `SANDBOX_API_KEY` |
+| `gpt-5` | `gpt-5` | `NEW_SECUREGPT_API_KEY` |
+
+Optional: `MAX_COMPLETION_TOKENS`, `REASONING_EFFORT`, `SANDBOX_ENV_PATH`, `ENV_PATH` (approach 1).
 
 ## Quick start
 
@@ -124,14 +132,17 @@ Optional: `MAX_COMPLETION_TOKENS`, `REASONING_EFFORT`, `SANDBOX_ENV_PATH`.
 cd pipeline
 export SANDBOX_API_KEY=your_key_here
 
-# Interactive (prompts for cost confirmation)
-python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1
+# GPT-5-nano (default; uses SANDBOX_API_KEY)
+python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1 --model gpt-5-nano
+
+# GPT-5 (uses NEW_SECUREGPT_API_KEY)
+python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1 --model gpt-5
 
 # Non-interactive
 python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1 -y
 ```
 
-Common flags: `--resume` / `--no-resume`, `--skip-completed-configs`, `--force-rerun-cases`, `--skip-preflight`, `--results-report-only`.
+Common flags: `--resume` / `--no-resume`, `--skip-completed-configs`, `--force-rerun-cases`, `--skip-preflight`, `--results-report-only`, `--model`, `--deployment` (alias for `--model`).
 
 Regenerate the HTML review page without API calls:
 
@@ -148,6 +159,7 @@ export SANDBOX_API_KEY=your_key_here
 python approach2.py \
   --csv-path /path/to/cases.csv \
   --out_dir ./outputs/approach2 \
+  --model gpt-5-nano \
   --enable-pathology-calibration \
   --enable-teacher-student \
   --modalities mri path combined \

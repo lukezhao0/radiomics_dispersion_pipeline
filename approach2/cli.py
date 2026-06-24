@@ -117,8 +117,15 @@ from approach2.orchestration import (
     run_one_outer_split,
     write_failed_split_marker,
 )
+from approach2.extraction.config import DEFAULT_MODEL, ENV_PATH, configure_llm
+from common.llm_models import SUPPORTED_MODELS
+from common.reasoning_effort import DEFAULT_REASONING_EFFORT, REASONING_EFFORT_CHOICES
 from approach2.splits import build_outer_splits, log_outer_split_summary, validate_outer_splits
-from approach2.api.cost import write_apriori_cost_estimate_json
+from approach2.api.cost import (
+    initialize_cost_tracker_for_resume,
+    set_cost_persist_path,
+    write_apriori_cost_estimate_json,
+)
 from approach2.reports import (
     generate_all_reports,
     pathology_metrics_on_mri_complete,
@@ -201,6 +208,26 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--csv-path", type=str, required=True, help="Path to the raw CSV with MRI/pathology reports and true outcomes.")
     parser.add_argument("--out_dir", type=str, required=True, help="Directory to write nested-resampling outputs.")
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=DEFAULT_MODEL,
+        choices=list(SUPPORTED_MODELS),
+        help="LLM deployment to use (gpt-5-nano uses SANDBOX_API_KEY; gpt-5 uses NEW_SECUREGPT_API_KEY).",
+    )
+    parser.add_argument(
+        "--env-path",
+        type=str,
+        default=ENV_PATH,
+        help="Path to .env containing model-specific API keys.",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        type=str,
+        default=DEFAULT_REASONING_EFFORT,
+        choices=list(REASONING_EFFORT_CHOICES),
+        help="GPT-5 reasoning effort sent to the API (default: minimal; use 'none' to omit).",
+    )
     parser.add_argument("--outer-scheme", type=str, default="repeated_mc", choices=["repeated_mc", "stratified_kfold"], help="Outer resampling design.")
     parser.add_argument("--outer-repeats", type=int, default=5, help="Number of repeated 80/20 Monte Carlo outer splits when --outer-scheme repeated_mc.")
     parser.add_argument("--outer-test-frac", type=float, default=0.20, help="Outer test fraction for repeated Monte Carlo splitting.")
@@ -274,6 +301,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    configure_llm(args.model, env_path=args.env_path, reasoning_effort=args.reasoning_effort)
+
+    cost_report_path = os.path.join(args.out_dir, "llm_token_cost_report.json")
+    set_cost_persist_path(cost_report_path, resume=args.resume)
+    initialize_cost_tracker_for_resume(cost_report_path, resume=args.resume)
+
     args.max_api_workers = resolve_default_api_workers(args.max_api_workers)
     args.parallel_modality_workers = resolve_default_parallel_modality_workers(args.parallel_modality_workers)
     args.ml_n_jobs = resolve_default_ml_n_jobs(args.ml_n_jobs)
@@ -297,6 +330,9 @@ def main() -> None:
         with contextlib.redirect_stdout(tee_out), contextlib.redirect_stderr(tee_err):
             print("\n" + "#" * 100)
             print(f"[RUN_START] {datetime.now().isoformat(timespec='seconds')}")
+            print(f"[RUN_START] model={args.model}")
+            print(f"[RUN_START] reasoning_effort={args.reasoning_effort}")
+            print(f"[RUN_START] env_path={args.env_path}")
             print(f"[RUN_START] resume={args.resume} force_reextract={args.force_reextract} skip_completed_splits={args.skip_completed_splits}")
             print("#" * 100)
 
@@ -591,7 +627,7 @@ def main() -> None:
 
             print(f"[SAVE] Wrote summary text: {summary_txt}")
             print("\n" + summary)
-            print_cumulative_report()
+            print_cumulative_report(label="full nested pipeline (final, resume-stable)")
             write_cost_tracker_json(args.out_dir)
             print("[DONE] Nested resampling evaluation complete.")
 

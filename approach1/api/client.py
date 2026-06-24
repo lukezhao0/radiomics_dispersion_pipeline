@@ -9,6 +9,8 @@ from typing import Dict, Optional
 import requests
 from dotenv import load_dotenv
 
+from common.llm_models import get_model_config, resolve_api_key
+
 from .. import config
 from ..prompts.system import SYSTEM_MSG
 from .cost import CostTracker
@@ -37,10 +39,8 @@ class SecureGPTClient:
         self.cost_tracker = cost_tracker or CostTracker()
 
         load_dotenv(env_path, override=True)
-        api_key = __import__("os").getenv("SANDBOX_API_KEY")
-        if not api_key:
-            raise RuntimeError(f"SANDBOX_API_KEY not found in {env_path}. Check your .env file.")
-        api_key = api_key.strip()
+        cfg = get_model_config(deployment)
+        api_key = resolve_api_key(deployment, env_path=env_path)
 
         self.url = (
             config.SECUREGPT_BASE_URL
@@ -53,8 +53,10 @@ class SecureGPTClient:
             "Accept": "application/json",
         }
 
+        config.apply_model_config(deployment)
         config.DEPLOYMENT = deployment
         config.API_VERSION = api_version
+        self.model_label = cfg.pricing_label
 
     def chat(self, prompt: str, max_completion_tokens: int = config.MAX_TOKENS) -> str:
         print(f"[API] Sending request... prompt_chars={len(prompt)}")
@@ -66,6 +68,8 @@ class SecureGPTClient:
             ],
             "max_completion_tokens": max_completion_tokens,
         }
+        if config.REASONING_EFFORT:
+            payload["reasoning_effort"] = config.REASONING_EFFORT
 
         t0 = time.time()
         response = requests.post(
@@ -98,6 +102,7 @@ class SecureGPTClient:
             f"prompt_tokens={cost_info['prompt_tokens']} "
             f"cached_tokens={cost_info['cached_tokens']} "
             f"completion_tokens={cost_info['completion_tokens']} "
+            f"reasoning_tokens={cost_info['reasoning_tokens']} "
             f"estimated_cost=${cost_info['estimated_cost_usd']:.8f} "
             f"cache_savings=${cost_info['estimated_cache_savings_usd']:.8f}"
         )

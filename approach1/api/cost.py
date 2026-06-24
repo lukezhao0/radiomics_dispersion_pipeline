@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -13,6 +14,10 @@ from ..io_atomic import atomic_write_json
 from ..models import Case, RunConfig
 from ..prompts.system import SYSTEM_MSG
 from ..prompts.templates import build_user_prompt
+
+
+PIPELINE_COST_FILENAME = "llm_token_cost_report.json"
+CONFIG_COST_FILENAME = "token_cost_report.json"
 
 
 def empty_cost_tracker() -> Dict[str, Any]:
@@ -34,9 +39,17 @@ class CostTracker:
 
     def __init__(self) -> None:
         self._data = empty_cost_tracker()
+        self._persist_path: Optional[str] = None
+        self._prior: Optional[Dict[str, Any]] = None
+
+    def configure_persist(self, path: Optional[str], prior: Optional[Dict[str, Any]] = None) -> None:
+        self._persist_path = path
+        self._prior = prior
 
     def reset(self) -> None:
         self._data = empty_cost_tracker()
+        self._persist_path = None
+        self._prior = None
 
     def to_dict(self) -> Dict[str, Any]:
         return dict(self._data)
@@ -52,20 +65,40 @@ class CostTracker:
         self._data["total_tokens"] += int(cost_info["total_tokens"])
         self._data["estimated_cost_usd"] += float(cost_info["estimated_cost_usd"])
         self._data["estimated_cache_savings_usd"] += float(cost_info["estimated_cache_savings_usd"])
+        self._persist_if_configured()
         return cost_info
 
+    def _persist_if_configured(self) -> None:
+        if self._persist_path:
+            save_cumulative_report_json(self._persist_path, self, prior=self._prior)
+
     def print_cumulative_report(self) -> None:
-        d = self._data
-        print("\n[CUMULATIVE TOKEN / COST REPORT]")
-        print(f"calls:                    {d['calls']}")
-        print(f"prompt_tokens:            {d['prompt_tokens']}")
-        print(f"cached_tokens:            {d['cached_tokens']}")
-        print(f"uncached_prompt_tokens:   {d['uncached_prompt_tokens']}")
-        print(f"completion_tokens:        {d['completion_tokens']}")
-        print(f"reasoning_tokens:         {d['reasoning_tokens']}")
-        print(f"total_tokens:             {d['total_tokens']}")
-        print(f"estimated_total_cost_usd: ${d['estimated_cost_usd']:.8f}")
-        print(f"estimated_cache_savings:  ${d['estimated_cache_savings_usd']:.8f}")
+        print_cumulative_report_snapshot(self._data)
+
+
+def print_cumulative_report_snapshot(
+    snapshot: Dict[str, Any],
+    *,
+    label: str = "current session",
+) -> None:
+    print(f"\n[CUMULATIVE TOKEN / COST REPORT] ({label})")
+    print(f"model:                    {config.MODEL}")
+    print(f"pricing_label:            {config.PRICING_LABEL}")
+    print(
+        "pricing_per_1M:           "
+        f"input=${config.PRICE_PER_1M_INPUT_TOKENS:.4f} "
+        f"cached_input=${config.PRICE_PER_1M_CACHED_INPUT_TOKENS:.4f} "
+        f"output=${config.PRICE_PER_1M_OUTPUT_TOKENS:.4f}"
+    )
+    print(f"calls:                    {snapshot['calls']}")
+    print(f"prompt_tokens:            {snapshot['prompt_tokens']}")
+    print(f"cached_tokens:            {snapshot['cached_tokens']}")
+    print(f"uncached_prompt_tokens:   {snapshot['uncached_prompt_tokens']}")
+    print(f"completion_tokens:        {snapshot['completion_tokens']}")
+    print(f"reasoning_tokens:         {snapshot['reasoning_tokens']}")
+    print(f"total_tokens:             {snapshot['total_tokens']}")
+    print(f"estimated_total_cost_usd: ${snapshot['estimated_cost_usd']:.8f}")
+    print(f"estimated_cache_savings:  ${snapshot['estimated_cache_savings_usd']:.8f}")
 
 
 def estimate_cost_from_usage(usage: Dict[str, Any]) -> Dict[str, Any]:
@@ -125,6 +158,15 @@ def merge_cost_trackers(prior: Optional[Dict[str, Any]], session: Dict[str, Any]
     return merged
 
 
+def _tracker_fields_from_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    source = data.get("cumulative") if isinstance(data.get("cumulative"), dict) else data
+    out = empty_cost_tracker()
+    for key in out:
+        if key in source:
+            out[key] = source[key]
+    return out
+
+
 def load_cost_tracker_snapshot(path: str) -> Optional[Dict[str, Any]]:
     import json
     import os
@@ -136,11 +178,9 @@ def load_cost_tracker_snapshot(path: str) -> Optional[Dict[str, Any]]:
             data = json.load(f)
     except Exception:
         return None
-    if isinstance(data, dict) and isinstance(data.get("cumulative"), dict):
-        return data["cumulative"]
-    if isinstance(data, dict):
-        return data
-    return None
+    if not isinstance(data, dict):
+        return None
+    return _tracker_fields_from_payload(data)
 
 
 def save_cumulative_report_json(
@@ -153,11 +193,50 @@ def save_cumulative_report_json(
     payload = {
         "resume_script_version": config.RESUME_SCRIPT_VERSION,
         "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "model": config.MODEL,
+        "pricing_label": config.PRICING_LABEL,
+        "price_per_1M_input_tokens": config.PRICE_PER_1M_INPUT_TOKENS,
+        "price_per_1M_cached_input_tokens": config.PRICE_PER_1M_CACHED_INPUT_TOKENS,
+        "price_per_1M_output_tokens": config.PRICE_PER_1M_OUTPUT_TOKENS,
         "cumulative": cumulative,
         "session": session,
         "prior_sessions": prior or empty_cost_tracker(),
     }
     atomic_write_json(path, payload)
+
+
+def aggregate_pipeline_cost_report(run_configs: List[RunConfig]) -> Dict[str, Any]:
+    """Sum per-config cumulative costs across all shotset/tier runs."""
+    merged = empty_cost_tracker()
+    for rc in run_configs:
+        snapshot = load_cost_tracker_snapshot(os.path.join(rc.run_out_dir, CONFIG_COST_FILENAME))
+        if snapshot:
+            merged = merge_cost_trackers(merged, snapshot)
+    return merged
+
+
+def save_pipeline_cost_report(root_out_dir: str, run_configs: List[RunConfig]) -> str:
+    """Persist a root-level cumulative cost report stable across resume sessions."""
+    cumulative = aggregate_pipeline_cost_report(run_configs)
+    path = os.path.join(root_out_dir, PIPELINE_COST_FILENAME)
+    payload = {
+        "cost_type": "post_run_actual",
+        "resume_script_version": config.RESUME_SCRIPT_VERSION,
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "model": config.MODEL,
+        "pricing_label": config.PRICING_LABEL,
+        "price_per_1M_input_tokens": config.PRICE_PER_1M_INPUT_TOKENS,
+        "price_per_1M_cached_input_tokens": config.PRICE_PER_1M_CACHED_INPUT_TOKENS,
+        "price_per_1M_output_tokens": config.PRICE_PER_1M_OUTPUT_TOKENS,
+        "n_run_configs": len(run_configs),
+        "cumulative": cumulative,
+        "billing_note": (
+            "Post-run actuals aggregated from per-config token_cost_report.json files. "
+            "Each config report is updated after every API call when resume is enabled."
+        ),
+    }
+    atomic_write_json(path, payload)
+    return path
 
 
 def _estimate_tokens_for_text(text: str) -> int:
@@ -271,7 +350,14 @@ def summarize_apriori_costs(run_configs: List[RunConfig]) -> Dict[str, Any]:
 def print_apriori_cost_report(run_configs: List[RunConfig]) -> None:
     total = summarize_apriori_costs(run_configs)
     print("\n[A-PRIORI TOKEN / COST ESTIMATE ACROSS ALL REQUESTED RUNS]")
-    print(f"model/deployment:                         {config.DEPLOYMENT}")
+    print(f"model/deployment:                         {config.MODEL}")
+    print(f"pricing_label:                            {config.PRICING_LABEL}")
+    print(
+        "pricing_per_1M:                           "
+        f"input=${config.PRICE_PER_1M_INPUT_TOKENS:.4f} "
+        f"cached_input=${config.PRICE_PER_1M_CACHED_INPUT_TOKENS:.4f} "
+        f"output=${config.PRICE_PER_1M_OUTPUT_TOKENS:.4f}"
+    )
     print(f"planned shotsettier runs:                {total['n_runs']}")
     print(f"planned prediction calls:                 {total['n_calls']}")
     print(f"estimated prompt tokens total:            {total['prompt_tokens_estimated_total']}")

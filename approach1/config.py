@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import os
 
+from common.llm_models import DEFAULT_MODEL, get_model_config
+from common.reasoning_effort import DEFAULT_REASONING_EFFORT, normalize_reasoning_effort
+
 __version__ = "1.0.0"
 
 CSV_PATH = "/Users/lukezhao/projects/onc/PROCESSED_TRIMMED_path_cases_MRI_status.csv"
@@ -11,7 +14,8 @@ OUT_DIR = os.path.join(os.getcwd(), "securegpt_dispersion_3tier_outputs")
 ENV_PATH = os.getenv("ENV_PATH", "/Users/lukezhao/projects/onc/.env")
 
 API_VERSION = "2024-12-01-preview"
-DEPLOYMENT = "gpt-5-nano"
+MODEL = DEFAULT_MODEL
+DEPLOYMENT = MODEL
 SECUREGPT_BASE_URL = "https://aihubapi.stanfordhealthcare.org/azure-openai"
 
 MAX_TOKENS = 16000
@@ -39,13 +43,35 @@ SHOT_SETS = [
 
 MODALITY_TIERS = ["mri_only", "pathology_only", "mri_plus_pathology"]
 
-PRICE_PER_1M_INPUT_TOKENS = 0.05
-PRICE_PER_1M_CACHED_INPUT_TOKENS = 0.01
-PRICE_PER_1M_OUTPUT_TOKENS = 0.40
+_default_pricing = get_model_config(DEFAULT_MODEL)
+PRICE_PER_1M_INPUT_TOKENS = _default_pricing.price_per_1m_input_tokens
+PRICE_PER_1M_CACHED_INPUT_TOKENS = _default_pricing.price_per_1m_cached_input_tokens
+PRICE_PER_1M_OUTPUT_TOKENS = _default_pricing.price_per_1m_output_tokens
+PRICING_LABEL = _default_pricing.pricing_label
 
-REASONING_EFFORT = os.getenv("REASONING_EFFORT", "minimal").strip().lower()
-if REASONING_EFFORT in {"", "none", "null"}:
-    REASONING_EFFORT = ""
+REASONING_EFFORT = normalize_reasoning_effort()
+
+
+def set_reasoning_effort(value: str | None = None) -> str:
+    """Update the module-level reasoning effort used in API payloads."""
+    global REASONING_EFFORT
+    REASONING_EFFORT = normalize_reasoning_effort(value, default=DEFAULT_REASONING_EFFORT)
+    return REASONING_EFFORT
+
+
+def apply_model_config(model: str) -> None:
+    """Update deployment and pricing globals for the selected model."""
+    global MODEL, DEPLOYMENT, PRICE_PER_1M_INPUT_TOKENS, PRICE_PER_1M_CACHED_INPUT_TOKENS
+    global PRICE_PER_1M_OUTPUT_TOKENS, PRICING_LABEL
+
+    cfg = get_model_config(model)
+    MODEL = cfg.deployment
+    DEPLOYMENT = cfg.deployment
+    PRICE_PER_1M_INPUT_TOKENS = cfg.price_per_1m_input_tokens
+    PRICE_PER_1M_CACHED_INPUT_TOKENS = cfg.price_per_1m_cached_input_tokens
+    PRICE_PER_1M_OUTPUT_TOKENS = cfg.price_per_1m_output_tokens
+    PRICING_LABEL = cfg.pricing_label
+
 
 STOPWORDS = {
     "the", "a", "an", "and", "or", "of", "to", "in", "for", "on", "with", "is", "are",

@@ -10,15 +10,9 @@ import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence
 
-from ..extraction.config import (
-    API_VERSION,
-    DEPLOYMENT,
-    MAX_TOKENS,
-    PRICE_PER_1M_CACHED_INPUT_TOKENS,
-    PRICE_PER_1M_INPUT_TOKENS,
-    PRICE_PER_1M_OUTPUT_TOKENS,
-)
+from ..extraction import config as llm_config
 from ..extraction.data import Case
+from ..io_atomic import atomic_write_json
 from ..prompts.builder import build_user_prompt
 from ..prompts.extraction import SYSTEM_MSG
 from ..text_utils import is_affirmative_response, is_negative_response
@@ -28,6 +22,8 @@ from ..text_utils import is_affirmative_response, is_negative_response
 # -----------------------------
 
 COST_TRACKER_LOCK = threading.Lock()
+COST_PERSIST_PATH: Optional[str] = None
+COST_PERSIST_RESUME = True
 COST_TRACKER: Dict[str, Any] = {
     "calls": 0,
     "prompt_tokens": 0,
@@ -46,6 +42,76 @@ COST_TRACKER: Dict[str, Any] = {
 GLOBAL_API_CONCURRENCY_LOCK = threading.Lock()
 GLOBAL_API_MAX_CONCURRENCY = 1
 GLOBAL_API_SEMAPHORE = threading.BoundedSemaphore(GLOBAL_API_MAX_CONCURRENCY)
+
+
+def empty_cost_tracker() -> Dict[str, Any]:
+    return {
+        "calls": 0,
+        "prompt_tokens": 0,
+        "cached_tokens": 0,
+        "uncached_prompt_tokens": 0,
+        "completion_tokens": 0,
+        "reasoning_tokens": 0,
+        "total_tokens": 0,
+        "estimated_cost_usd": 0.0,
+        "estimated_cache_savings_usd": 0.0,
+    }
+
+
+def _tracker_fields_from_payload(data: Dict[str, Any]) -> Dict[str, Any]:
+    source = data.get("cumulative") if isinstance(data.get("cumulative"), dict) else data
+    out = empty_cost_tracker()
+    for key in out:
+        if key in source:
+            out[key] = source[key]
+    return out
+
+
+def load_cost_tracker_snapshot(path: str) -> Optional[Dict[str, Any]]:
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return _tracker_fields_from_payload(data)
+
+
+def reset_cost_tracker() -> None:
+    with COST_TRACKER_LOCK:
+        COST_TRACKER.clear()
+        COST_TRACKER.update(empty_cost_tracker())
+
+
+def set_cost_persist_path(path: Optional[str], *, resume: bool = True) -> None:
+    global COST_PERSIST_PATH, COST_PERSIST_RESUME
+    COST_PERSIST_PATH = path
+    COST_PERSIST_RESUME = bool(resume)
+
+
+def initialize_cost_tracker_for_resume(path: str, *, resume: bool = True) -> None:
+    """Load prior cumulative usage from disk so resumed runs keep accurate totals."""
+    reset_cost_tracker()
+    if not resume or not path:
+        return
+    prior = load_cost_tracker_snapshot(path)
+    if not prior:
+        return
+    with COST_TRACKER_LOCK:
+        COST_TRACKER.update(prior)
+
+
+def _persist_cost_tracker_if_configured() -> None:
+    if not COST_PERSIST_PATH:
+        return
+    write_cost_tracker_json(
+        os.path.dirname(COST_PERSIST_PATH),
+        filename=os.path.basename(COST_PERSIST_PATH),
+        quiet=True,
+    )
 
 
 def configure_global_api_concurrency(max_concurrent_requests: int) -> None:
@@ -86,12 +152,12 @@ def estimate_cost_from_usage(usage: Dict[str, Any]) -> Dict[str, Any]:
     reasoning_tokens = int(completion_details.get("reasoning_tokens", 0) or 0)
     uncached_prompt_tokens = max(prompt_tokens - cached_tokens, 0)
 
-    input_cost = (uncached_prompt_tokens / 1_000_000) * PRICE_PER_1M_INPUT_TOKENS
-    cached_input_cost = (cached_tokens / 1_000_000) * PRICE_PER_1M_CACHED_INPUT_TOKENS
-    output_cost = (completion_tokens / 1_000_000) * PRICE_PER_1M_OUTPUT_TOKENS
+    input_cost = (uncached_prompt_tokens / 1_000_000) * llm_config.PRICE_PER_1M_INPUT_TOKENS
+    cached_input_cost = (cached_tokens / 1_000_000) * llm_config.PRICE_PER_1M_CACHED_INPUT_TOKENS
+    output_cost = (completion_tokens / 1_000_000) * llm_config.PRICE_PER_1M_OUTPUT_TOKENS
     estimated_cost = input_cost + cached_input_cost + output_cost
 
-    no_cache_input_cost = (prompt_tokens / 1_000_000) * PRICE_PER_1M_INPUT_TOKENS
+    no_cache_input_cost = (prompt_tokens / 1_000_000) * llm_config.PRICE_PER_1M_INPUT_TOKENS
     actual_input_cost = input_cost + cached_input_cost
     cache_savings = max(no_cache_input_cost - actual_input_cost, 0.0)
 
@@ -141,6 +207,7 @@ def update_cost_tracker(cost_info: Dict[str, Any]) -> None:
         COST_TRACKER["total_tokens"] += int(cost_info["total_tokens"])
         COST_TRACKER["estimated_cost_usd"] += float(cost_info["estimated_cost_usd"])
         COST_TRACKER["estimated_cache_savings_usd"] += float(cost_info["estimated_cache_savings_usd"])
+    _persist_cost_tracker_if_configured()
 
 
 def get_cost_tracker_snapshot() -> Dict[str, Any]:
@@ -148,11 +215,17 @@ def get_cost_tracker_snapshot() -> Dict[str, Any]:
         return dict(COST_TRACKER)
 
 
-def print_cumulative_report() -> None:
+def print_cumulative_report(*, label: str = "current session") -> None:
     snapshot = get_cost_tracker_snapshot()
-    print("\n[CUMULATIVE TOKEN / COST REPORT]")
-    print(f"model:                    {DEPLOYMENT}")
-    print(f"pricing_per_1M:           input=${PRICE_PER_1M_INPUT_TOKENS:.4f} cached_input=${PRICE_PER_1M_CACHED_INPUT_TOKENS:.4f} output=${PRICE_PER_1M_OUTPUT_TOKENS:.4f}")
+    print(f"\n[CUMULATIVE TOKEN / COST REPORT] ({label})")
+    print(f"model:                    {llm_config.MODEL}")
+    print(f"pricing_label:            {llm_config.PRICING_LABEL}")
+    print(
+        "pricing_per_1M:           "
+        f"input=${llm_config.PRICE_PER_1M_INPUT_TOKENS:.4f} "
+        f"cached_input=${llm_config.PRICE_PER_1M_CACHED_INPUT_TOKENS:.4f} "
+        f"output=${llm_config.PRICE_PER_1M_OUTPUT_TOKENS:.4f}"
+    )
     print(f"calls:                    {snapshot['calls']}")
     print(f"prompt_tokens:            {snapshot['prompt_tokens']}")
     print(f"cached_tokens:            {snapshot['cached_tokens']}")
@@ -164,27 +237,36 @@ def print_cumulative_report() -> None:
     print(f"estimated_cache_savings:  ${snapshot['estimated_cache_savings_usd']:.8f}")
 
 
-def write_cost_tracker_json(out_dir: str, filename: str = "llm_token_cost_report.json") -> str:
+def write_cost_tracker_json(
+    out_dir: str,
+    filename: str = "llm_token_cost_report.json",
+    *,
+    quiet: bool = False,
+) -> str:
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, filename)
-    payload = get_cost_tracker_snapshot()
-    payload.update({
+    cumulative = get_cost_tracker_snapshot()
+    payload = {
         "cost_type": "post_run_actual",
-        "model": DEPLOYMENT,
-        "api_version": API_VERSION,
-        "price_per_1M_input_tokens": PRICE_PER_1M_INPUT_TOKENS,
-        "price_per_1M_cached_input_tokens": PRICE_PER_1M_CACHED_INPUT_TOKENS,
-        "price_per_1M_output_tokens": PRICE_PER_1M_OUTPUT_TOKENS,
+        "model": llm_config.MODEL,
+        "deployment": llm_config.DEPLOYMENT,
+        "pricing_label": llm_config.PRICING_LABEL,
+        "api_version": llm_config.API_VERSION,
+        "reasoning_effort": llm_config.REASONING_EFFORT or None,
+        "price_per_1M_input_tokens": llm_config.PRICE_PER_1M_INPUT_TOKENS,
+        "price_per_1M_cached_input_tokens": llm_config.PRICE_PER_1M_CACHED_INPUT_TOKENS,
+        "price_per_1M_output_tokens": llm_config.PRICE_PER_1M_OUTPUT_TOKENS,
         "billing_note": (
             "Post-run actuals from API usage metadata. cached_tokens are subtracted from "
             "prompt_tokens for uncached input billing; they are not double-counted."
         ),
         "written_at": datetime.now().isoformat(timespec="seconds"),
-    })
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, sort_keys=True)
-        f.write("\n")
-    print(f"[SAVE] Wrote LLM token/cost report (post-run actuals): {path}")
+        "cumulative": cumulative,
+    }
+    payload.update(cumulative)
+    atomic_write_json(payload, path)
+    if not quiet:
+        print(f"[SAVE] Wrote LLM token/cost report (post-run actuals): {path}")
     return path
 
 
@@ -225,7 +307,7 @@ def _rough_token_count(text: str) -> int:
     try:
         import tiktoken  # type: ignore
         try:
-            enc = tiktoken.encoding_for_model(DEPLOYMENT)
+            enc = tiktoken.encoding_for_model(llm_config.MODEL)
         except Exception:
             enc = tiktoken.get_encoding("cl100k_base")
         return len(enc.encode(text))
@@ -274,7 +356,7 @@ def estimate_static_cached_prefix_tokens(report_mode: str) -> int:
 def summarize_apriori_cost_estimate(
     prompt_token_counts: Sequence[int],
     report_modes: Sequence[str],
-    max_completion_tokens: int = MAX_TOKENS,
+    max_completion_tokens: int = llm_config.MAX_TOKENS,
     assume_static_prefix_cache: bool = True,
 ) -> Dict[str, Any]:
     """Summarize conservative and cache-aware a-priori cost estimates."""
@@ -307,8 +389,10 @@ def summarize_apriori_cost_estimate(
     )
 
     return {
-        "model": DEPLOYMENT,
-        "api_version": API_VERSION,
+        "model": llm_config.MODEL,
+        "deployment": llm_config.DEPLOYMENT,
+        "pricing_label": llm_config.PRICING_LABEL,
+        "api_version": llm_config.API_VERSION,
         "n_calls": len(prompt_counts),
         "estimated_prompt_tokens": total_prompt_tokens,
         "estimated_completion_cap_tokens": total_completion_cap_tokens,
@@ -317,9 +401,9 @@ def summarize_apriori_cost_estimate(
         "cache_aware_estimated_cost_usd": cache_aware["estimated_cost_usd"],
         "cache_aware_estimated_cached_tokens": estimated_cached_tokens,
         "cache_aware_estimated_cache_savings_usd": cache_aware["estimated_cache_savings_usd"],
-        "price_per_1M_input_tokens": PRICE_PER_1M_INPUT_TOKENS,
-        "price_per_1M_cached_input_tokens": PRICE_PER_1M_CACHED_INPUT_TOKENS,
-        "price_per_1M_output_tokens": PRICE_PER_1M_OUTPUT_TOKENS,
+        "price_per_1M_input_tokens": llm_config.PRICE_PER_1M_INPUT_TOKENS,
+        "price_per_1M_cached_input_tokens": llm_config.PRICE_PER_1M_CACHED_INPUT_TOKENS,
+        "price_per_1M_output_tokens": llm_config.PRICE_PER_1M_OUTPUT_TOKENS,
     }
 
 

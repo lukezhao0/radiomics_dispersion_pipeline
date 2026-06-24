@@ -10,7 +10,9 @@ from datetime import datetime
 from typing import Optional
 
 from ..logging_setup import Tee
-from .config import CSV_PATH, DEFAULT_REPORT_MODE, REPORT_CONFIG
+from common.llm_models import SUPPORTED_MODELS
+from common.reasoning_effort import DEFAULT_REASONING_EFFORT, REASONING_EFFORT_CHOICES
+from .config import CSV_PATH, DEFAULT_MODEL, DEFAULT_REPORT_MODE, ENV_PATH, REPORT_CONFIG, configure_llm
 from .pipeline import _load_row_indices_json, run_pipeline
 
 def main(
@@ -68,6 +70,26 @@ def main(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="SecureGPT modality-specific lexical feature discovery pipeline"
+    )
+    parser.add_argument(
+        "--model",
+        dest="model",
+        default=DEFAULT_MODEL,
+        choices=list(SUPPORTED_MODELS),
+        help="LLM deployment to use (gpt-5-nano uses SANDBOX_API_KEY; gpt-5 uses NEW_SECUREGPT_API_KEY).",
+    )
+    parser.add_argument(
+        "--env-path",
+        dest="env_path",
+        default=ENV_PATH,
+        help="Path to .env containing model-specific API keys.",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        dest="reasoning_effort",
+        default=DEFAULT_REASONING_EFFORT,
+        choices=list(REASONING_EFFORT_CHOICES),
+        help="GPT-5 reasoning effort sent to the API (default: minimal; use 'none' to omit).",
     )
     parser.add_argument(
         "--csv-path",
@@ -143,6 +165,7 @@ if __name__ == "__main__":
         help="Ignore existing per-case checkpoints and call the API again.",
     )
     args = parser.parse_args()
+    configure_llm(args.model, env_path=args.env_path, reasoning_effort=args.reasoning_effort)
     main(
         csv_path=args.csv_path,
         out_dir=args.out_dir,

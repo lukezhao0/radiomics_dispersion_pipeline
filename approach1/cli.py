@@ -9,21 +9,47 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from . import config
-from .api import confirm_before_full_run, configure_api, preflight_check, print_cumulative_report, reset_cost_tracker
+from .api import (
+    aggregate_pipeline_cost_report,
+    confirm_before_full_run,
+    configure_api,
+    preflight_check,
+    print_cumulative_report,
+    print_cumulative_report_snapshot,
+    reset_cost_tracker,
+    save_pipeline_cost_report,
+)
 from .data import load_cases
 from .logging_setup import Tee
 from .evaluation.results_report import build_approach1_results_html
 from .orchestration import run_one_config, save_aggregate_summary
 from .splits import build_run_configs
+from common.reasoning_effort import DEFAULT_REASONING_EFFORT, REASONING_EFFORT_CHOICES
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="SecureGPT 3-tier dispersion/relapse pipeline + evaluation")
     parser.add_argument("--csv-path", "-c", default=config.CSV_PATH, help="Path to input CSV file.")
     parser.add_argument("--outdir", "-o", default=config.OUT_DIR, help="Root directory to write all shotset/tier outputs.")
-    parser.add_argument("--env-path", default=config.ENV_PATH, help="Path to .env containing SANDBOX_API_KEY.")
-    parser.add_argument("--deployment", default=config.DEPLOYMENT, help="SecureGPT/Azure deployment name.")
+    parser.add_argument("--env-path", default=config.ENV_PATH, help="Path to .env containing model-specific API keys.")
+    parser.add_argument(
+        "--model",
+        default=None,
+        choices=["gpt-5-nano", "gpt-5"],
+        help="LLM deployment to use (gpt-5-nano uses SANDBOX_API_KEY; gpt-5 uses NEW_SECUREGPT_API_KEY).",
+    )
+    parser.add_argument(
+        "--deployment",
+        default=config.DEPLOYMENT,
+        help="SecureGPT/Azure deployment name (alias for --model; default: gpt-5-nano).",
+    )
     parser.add_argument("--api-version", default=config.API_VERSION, help="Azure OpenAI API version.")
+    parser.add_argument(
+        "--reasoning-effort",
+        default=DEFAULT_REASONING_EFFORT,
+        choices=list(REASONING_EFFORT_CHOICES),
+        help="GPT-5 reasoning effort sent to the API (default: minimal; use 'none' to omit).",
+    )
     parser.add_argument("--yes", "-y", action="store_true", help="Skip the interactive a-priori cost confirmation prompt.")
     parser.add_argument("--skip-preflight", action="store_true", help="Skip the initial small API connectivity test.")
     parser.add_argument(
@@ -49,6 +75,7 @@ def main() -> None:
         help="Build approach1_results_report.html from existing artifacts in --outdir and exit (no API calls).",
     )
     args = parser.parse_args()
+    selected_model = args.model or args.deployment
 
     if args.results_report_only:
         build_approach1_results_html(args.outdir)
@@ -72,15 +99,17 @@ def main() -> None:
             print(f"[START] CSV_PATH={args.csv_path}")
             print(f"[START] OUT_DIR={args.outdir}")
             print(f"[START] ENV_PATH={args.env_path}")
-            print(f"[START] DEPLOYMENT={args.deployment}")
+            print(f"[START] MODEL={selected_model}")
+            print(f"[START] DEPLOYMENT={selected_model}")
             print(f"[START] API_VERSION={args.api_version}")
+            print(f"[START] REASONING_EFFORT={args.reasoning_effort}")
             print(f"[START] LOG_PATH={log_path}")
             print(f"[START] RESUME={args.resume}")
             print(f"[START] SKIP_COMPLETED_CONFIGS={args.skip_completed_configs}")
             print(f"[START] FORCE_RERUN_CASES={args.force_rerun_cases}")
             print("=" * 80)
 
-            configure_api(args.env_path, args.deployment, args.api_version)
+            configure_api(args.env_path, selected_model, args.api_version, reasoning_effort=args.reasoning_effort)
             df = load_cases(args.csv_path)
             run_configs = build_run_configs(df, args.outdir)
 
@@ -110,9 +139,21 @@ def main() -> None:
                     "n_skipped_missing_mri": len(rc.skipped_missing_mri),
                     "metrics": metrics,
                 })
+                pipeline_cost = aggregate_pipeline_cost_report(run_configs)
+                save_pipeline_cost_report(args.outdir, run_configs)
+                print_cumulative_report_snapshot(
+                    pipeline_cost,
+                    label="full pipeline (all shotsets/tiers, resume-stable)",
+                )
 
             save_aggregate_summary(args.outdir, aggregate_summaries)
             build_approach1_results_html(args.outdir)
+            final_cost = aggregate_pipeline_cost_report(run_configs)
+            save_pipeline_cost_report(args.outdir, run_configs)
+            print_cumulative_report_snapshot(
+                final_cost,
+                label="full pipeline (all shotsets/tiers, final)",
+            )
             print("[END] All shotset/tier runs complete.")
         finally:
             sys.stdout.flush()

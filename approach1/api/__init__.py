@@ -8,6 +8,7 @@ from .. import config
 from .client import SecureGPTClient
 from .cost import (
     CostTracker,
+    aggregate_pipeline_cost_report,
     confirm_before_full_run,
     empty_cost_tracker,
     estimate_apriori_pipeline_cost,
@@ -15,7 +16,9 @@ from .cost import (
     load_cost_tracker_snapshot,
     merge_cost_trackers,
     print_apriori_cost_report,
+    print_cumulative_report_snapshot,
     save_cumulative_report_json,
+    save_pipeline_cost_report,
     summarize_apriori_costs,
 )
 
@@ -45,8 +48,16 @@ def get_default_tracker() -> CostTracker:
     return _default_tracker
 
 
-def configure_api(env_path: str, deployment: str, api_version: str) -> None:
+def configure_api(
+    env_path: str,
+    deployment: str,
+    api_version: str,
+    reasoning_effort: str | None = None,
+) -> None:
     global _default_client, API_KEY, URL, HEADERS
+    config.apply_model_config(deployment)
+    if reasoning_effort is not None:
+        config.set_reasoning_effort(reasoning_effort)
     _default_client = SecureGPTClient(
         env_path=env_path,
         deployment=deployment,
@@ -106,6 +117,9 @@ __all__ = [
     "reset_cost_tracker",
     "update_cost_tracker",
     "print_cumulative_report",
+    "print_cumulative_report_snapshot",
+    "aggregate_pipeline_cost_report",
+    "save_pipeline_cost_report",
     "estimate_cost_from_usage",
     "merge_cost_trackers",
     "load_cost_tracker_snapshot",

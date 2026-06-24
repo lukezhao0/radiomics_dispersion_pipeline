@@ -22,8 +22,10 @@ from ..api.cost import (
     confirm_cost_estimate_or_exit,
     estimate_prompt_tokens_for_case,
     get_global_api_concurrency,
+    initialize_cost_tracker_for_resume,
     print_apriori_cost_estimate_report,
     print_cumulative_report,
+    set_cost_persist_path,
     summarize_apriori_cost_estimate,
     write_cost_tracker_json,
 )
@@ -511,6 +513,9 @@ def run_pipeline(
     print("=" * 80)
 
     os.makedirs(out_dir, exist_ok=True)
+    cost_report_path = os.path.join(out_dir, "llm_token_cost_report.json")
+    set_cost_persist_path(cost_report_path, resume=resume)
+    initialize_cost_tracker_for_resume(cost_report_path, resume=resume)
     max_api_workers = _resolve_default_api_workers(max_api_workers)
     configure_global_api_concurrency(max_api_workers)
     print(f"[START] MAX_API_WORKERS={max_api_workers}")
@@ -564,7 +569,7 @@ def run_pipeline(
     print(f"[DONE] Extraction complete in {dt_run/60:.2f} minutes.")
     print("=" * 80)
     print("\n" + summarize_run(extractions, report_mode, split_id=split_id))
-    print_cumulative_report()
+    print_cumulative_report(label="standalone extraction (final, resume-stable)")
     write_cost_tracker_json(out_dir)
     print("[END] All done.")
     return paths

@@ -10,6 +10,7 @@ import pandas as pd
 
 from . import config
 from .api import (
+    get_default_tracker,
     load_cost_tracker_snapshot,
     print_cumulative_report,
     reset_cost_tracker,
@@ -65,6 +66,10 @@ def run_one_config(
 
     prior_cost = load_cost_tracker_snapshot(cost_json) if resume and not force_rerun_cases else None
     reset_cost_tracker()
+    get_default_tracker().configure_persist(
+        cost_json,
+        prior=prior_cost if resume else None,
+    )
 
     existing_by_row: Dict[int, Dict[str, Any]] = {}
     if resume and not force_rerun_cases:
@@ -150,6 +155,7 @@ def run_one_config(
 
     print_cumulative_report()
     save_cumulative_report_json_shim(cost_json, prior=prior_cost if resume else None)
+    get_default_tracker().configure_persist(None)
     print(f"[COST] Wrote token/cost report: {cost_json}")
 
     title_suffix = f"{rc.shotset_name} / {modality_display_name(rc.modality)}"

@@ -22,7 +22,7 @@ from ..html_report import (
 )
 from ..logging_setup import Tee
 from ..prompts.builder import build_user_prompt
-from .config import MAX_TOKENS
+from .config import DEFAULT_MODEL, MAX_TOKENS, configure_llm
 from .data import (
     Case,
     _is_missing_text,
@@ -35,6 +35,7 @@ from .pipeline import extract_subset_records, write_extractions
 
 __all__ = [
     "MAX_TOKENS",
+    "configure_llm",
     "Tee",
     "Case",
     "build_chat_messages",

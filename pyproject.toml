@@ -25,7 +25,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["approach1*", "approach2*"]
+include = ["approach1*", "approach2*", "common*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

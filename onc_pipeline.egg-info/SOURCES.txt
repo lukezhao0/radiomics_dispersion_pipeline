@@ -20,8 +20,10 @@ approach1/checkpoint/predictions.py
 approach1/checkpoint/resume.py
 approach1/evaluation/__init__.py
 approach1/evaluation/evidence.py
+approach1/evaluation/html_report.py
 approach1/evaluation/metrics.py
 approach1/evaluation/plots.py
+approach1/evaluation/results_report.py
 approach1/evaluation/runner.py
 approach1/prompts/__init__.py
 approach1/prompts/descriptors.py
@@ -34,6 +36,7 @@ approach1/schema/records.py
 approach2/__init__.py
 approach2/audit.py
 approach2/calibration.py
+approach2/checkpoint.py
 approach2/cli.py
 approach2/config.py
 approach2/eval_data.py
@@ -45,6 +48,7 @@ approach2/models.py
 approach2/models_ml.py
 approach2/orchestration.py
 approach2/recoding.py
+approach2/report_cli.py
 approach2/reports.py
 approach2/splits.py
 approach2/text_utils.py
@@ -67,6 +71,8 @@ approach2/metrics/stats.py
 approach2/prompts/__init__.py
 approach2/prompts/builder.py
 approach2/prompts/extraction.py
+common/__init__.py
+common/llm_models.py
 onc_pipeline.egg-info/PKG-INFO
 onc_pipeline.egg-info/SOURCES.txt
 onc_pipeline.egg-info/dependency_links.txt

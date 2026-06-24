@@ -7,6 +7,9 @@ from unittest.mock import MagicMock, patch
 
 def test_api_client_omits_temperature_in_payload() -> None:
     import approach2.api.client as client_mod
+    import approach2.extraction.config as llm_config
+
+    llm_config.REASONING_EFFORT = "minimal"
 
     mock_response = MagicMock()
     mock_response.ok = True
@@ -25,6 +28,7 @@ def test_api_client_omits_temperature_in_payload() -> None:
         client_mod._post_chat_completion([{"role": "user", "content": "hi"}])
 
     assert "temperature" not in captured
+    assert captured["reasoning_effort"] == "minimal"
 
 
 def test_call_securegpt_chat_resolves_token_estimate() -> None:

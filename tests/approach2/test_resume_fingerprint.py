@@ -25,6 +25,8 @@ def _args(**kwargs):
         target_stable_features_per_modality=0,
         modalities=["mri", "path"],
         representations=["group_binary"],
+        model="gpt-5-nano",
+        reasoning_effort="medium",
     )
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -43,6 +45,14 @@ def test_fingerprint_rejects_csv_change() -> None:
     ok, msg = split_resume_fingerprints_compatible(saved, current)
     assert not ok
     assert "csv_path" in msg
+
+
+def test_fingerprint_rejects_model_change() -> None:
+    saved = build_split_resume_fingerprint(_args(model="gpt-5-nano"), "outer_split_001")
+    current = build_split_resume_fingerprint(_args(model="gpt-5"), "outer_split_001")
+    ok, msg = split_resume_fingerprints_compatible(saved, current)
+    assert not ok
+    assert "model" in msg
 
 
 def test_validate_split_marker_legacy_without_fingerprint_block() -> None:

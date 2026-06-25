@@ -138,7 +138,7 @@ pipeline/
 
 ### Deferred (not yet implemented)
 
-- Verbatim evidence-quote substring validation against input reports
+- Full programmatic enforcement of the ≤25-word *target* (hard cap remains 35 words with sanitize/repair)
 - PHI-safe log redaction (case IDs and API error bodies still appear in `run.log`)
 - Per-case API cost fields in output artifacts
 - Consolidating the duplicate copy at `sabcs/approach1-3.py`
@@ -165,6 +165,8 @@ Common flags:
 
 | Flag                          | Purpose                                                |
 | ----------------------------- | ------------------------------------------------------ |
+| `--model`                     | `gpt-5-nano` (default) or `gpt-5`                      |
+| `--reasoning-effort`          | GPT-5 reasoning effort (`medium` default; `none` omits) |
 | `-y` / `--yes`                | Skip interactive cost confirmation                     |
 | `--skip-preflight`            | Skip initial API connectivity test                     |
 | `--no-resume`                 | Ignore existing checkpoints; start fresh               |
@@ -175,7 +177,8 @@ Common flags:
 
 - `.env` must contain `SANDBOX_API_KEY` (see `pipeline/.gitignore`; never commit secrets).
 - Optional: `ENV_PATH` env var overrides default `.env` location.
-- Optional: `REASONING_EFFORT` env var (currently unused in payload; reserved).
+- Optional: `REASONING_EFFORT` env var (`minimal` / `low` / `medium` / `high`; use `none` to omit from API payload). Overridden by `--reasoning-effort`.
+- For `gpt-5`: `NEW_SECUREGPT_API_KEY` in `.env` (see `common/llm_models.py`).
 
 ### Programmatic imports
 
@@ -272,7 +275,7 @@ The refactored implementation is **functionally equivalent** to `approach1-3.py`
 
 - Shot sets use **2 high + 2 low** exemplar rows (4 total), not 3+3.
 - Few-shot exemplars originally included only `dispersion_score_true` and `relapse_true`; explicit high/low labels were added in the prompt-labeling update below.
-- Verbatim evidence quotes are required in the prompt but **not** programmatically validated as substrings of input reports (same as the monolith).
+- Verbatim evidence quotes are required in the prompt; **sanitize/repair/drop validation** now enforces substring presence and a 35-word hard cap before strict schema checks (see 2026-06-24 entry). The ≤25-word guideline is prompt-only unless quotes are repaired shorter.
 - Per-case API cost is not saved; only aggregate `token_cost_report.json` per config.
 
 ### Missing MRI handling fix
@@ -320,9 +323,9 @@ Training exemplars in the user prompt now include **all ground-truth labels** ne
 
 `RESUME_SCRIPT_VERSION` bumped to `approach1-3-v2` so prior checkpoints are invalidated after this prompt change.
 
-### LLM API sampling
+### LLM API sampling and reasoning
 
-Chat completion requests omit the deprecated `temperature` parameter. Sampling behavior follows the deployment default.
+Chat completion requests omit the deprecated `temperature` parameter. Sampling behavior follows the deployment default. GPT-5-style deployments accept `reasoning_effort` in the payload (default `medium`; omit with `none`).
 
 ### HTML results review report
 
@@ -352,10 +355,11 @@ Implementation: `approach1/evaluation/html_report.py` (styling helpers) and `app
 
 | Stage | Behavior |
 | ----- | -------- |
-| A-priori | Builds real `build_user_prompt` per test case; estimates tokens via tiktoken; separate input/output; cached-token heuristic from common prompt prefix |
-| Post-run | Uses API `usage` fields including `cached_tokens` and `reasoning_tokens` |
+| Model selection | `--model` sets deployment, API key env var, and per-1M pricing via `common/llm_models.py` |
+| A-priori | Builds real `build_user_prompt` per test case; estimates tokens via tiktoken; separate input/output; cached-token heuristic from common prompt prefix; prints active `pricing_label` |
+| Post-run | Uses API `usage` fields including `cached_tokens` and `reasoning_tokens`; root `llm_token_cost_report.json` aggregates per-config reports |
 | Retries | Each API call accumulates cost (including failed validation retries) |
-| Prices | Hardcoded in `config.py` (`PRICE_PER_1M_*`) |
+| Prices | Model-specific in `config.py` after `apply_model_config()` (nano vs GPT-5 tiers) |
 
 ### Test coverage (current)
 
@@ -369,7 +373,8 @@ pytest tests/approach1/ -v   # 34 tests: schema, prompts, splits, metrics, MRI h
 <outdir>/
 ├── run.log
 ├── all_tiers_metrics_summary.csv
-├── approach1_results_report.html          # NEW: consolidated HTML review
+├── llm_token_cost_report.json              # root aggregate post-run cost (all configs)
+├── approach1_results_report.html          # consolidated HTML review
 └── <shotset_name>/
     └── <modality>/
         ├── run_config.json
@@ -401,27 +406,123 @@ pytest tests/approach1/ -v   # 34 tests: schema, prompts, splits, metrics, MRI h
 
 ---
 
-## 2026-06-24 — Remove deprecated LLM `temperature` setting
+## 2026-06-24 — Multi-model GPT-5 support, reasoning effort, cost reports, validation hardening, temperature removal
 
 ### Summary
 
-Reverted Approach 1 chat-completions payloads to omit the deprecated `temperature` parameter. Removed CLI flag, env/config constant, resume fingerprint field, and related logging.
+Today's pipeline updates unify LLM configuration across Approach 1 and Approach 2: selectable `gpt-5-nano` vs full `gpt-5` deployments with model-specific API keys and pricing, GPT-5 `reasoning_effort` in chat payloads, richer a-priori and post-run cost reports, stricter key-evidence quote validation (≤25 words preferred, ≤35 hard cap with repair/drop sanitization), and removal of the deprecated `temperature` parameter.
 
-### Files changed
+### 1. Shared multi-model registry (`pipeline/common/`)
+
+New shared modules centralize deployment selection, API-key resolution, and pricing:
+
+| Module | Role |
+| ------ | ---- |
+| `common/llm_models.py` | `MODEL_REGISTRY`, `get_model_config()`, `load_model_env()`, `resolve_api_key()` |
+| `common/reasoning_effort.py` | `normalize_reasoning_effort()`, `DEFAULT_REASONING_EFFORT="medium"`, choices `minimal` / `low` / `medium` / `high` / `none` |
+
+Supported deployments:
+
+| Model | Deployment | API key env var | Pricing label |
+| ----- | ---------- | --------------- | ------------- |
+| `gpt-5-nano` (default) | `gpt-5-nano` | `SANDBOX_API_KEY` | GPT-5-nano Global |
+| `gpt-5` | `gpt-5` | `NEW_SECUREGPT_API_KEY` | GPT-5 2025-08-07 Global |
+
+GPT-5 pricing (per 1M tokens): input $1.25, cached input $0.13, output $10.00. GPT-5-nano pricing unchanged (input $0.05, cached $0.01, output $0.40).
+
+CLI: `--model {gpt-5-nano,gpt-5}` on both `approach1.py` and `approach2.py` / `approach2_aux.py`. `configure_api()` / `apply_model_config()` swap deployment, pricing globals, and the resolved API key at startup.
+
+### 2. Reasoning effort implementation
+
+`reasoning_effort` is now sent in chat-completions payloads when set (default `medium`). Use `--reasoning-effort none` or `REASONING_EFFORT=none` to omit the field entirely.
+
+| Surface | Behavior |
+| ------- | -------- |
+| CLI | `--reasoning-effort` (default `medium`; choices include `none`) |
+| Env | `REASONING_EFFORT` fallback when CLI not set |
+| API payload | `reasoning_effort` key added when non-empty (`approach1/api/client.py`, `approach2/api/client.py`) |
+| Cost JSON | `reasoning_effort` recorded in post-run and a-priori estimate artifacts |
+| Approach 2 resume | `reasoning_effort` included in split resume fingerprint (`approach2/checkpoint.py`) |
+
+Tests: `tests/common/test_reasoning_effort.py`, `tests/approach1/test_approach1_api_client.py`, `tests/approach2/test_api_client.py`.
+
+### 3. Cost prediction and post-run report updates
+
+Cost estimation and reporting now track the **selected model** and its pricing tier:
+
+- A-priori reports print `model`, `pricing_label`, and per-1M input/cached/output rates for the active deployment.
+- Approach 1: `print_apriori_cost_report()` and per-config `token_cost_report.json` include model-specific pricing; root-level `llm_token_cost_report.json` aggregates across shotset/tier runs with `cost_type=post_run_actual`.
+- Approach 2: `summarize_apriori_cost_estimate()` / `llm_cost_estimate_apriori.json` and `llm_token_cost_report.json` include `model`, `deployment`, `pricing_label`, `reasoning_effort`, and explicit `billing_note` (cached tokens subtracted from prompt billing, not double-counted).
+- Completion-token billing includes visible output **and** API-reported `reasoning_tokens` under the output rate.
+- Regression test confirms GPT-5 a-priori cost is ~25× GPT-5-nano for the same call plan (`tests/approach2/test_cli_cost_estimate.py`).
+
+### 4. Key-evidence validation (≤25 words target, ≤35 hard cap)
+
+Prompts instruct the model to keep `key_evidence` quotes ≤25 words when possible and never >35 words (`approach1/prompts/templates.py`; Approach 2 extraction quotes use the same guidance in `approach2/prompts/builder.py`).
+
+Validation pipeline (Approach 1):
+
+1. **Sanitize** (`sanitize_prediction_obj_for_validation` in `approach1/schema/prediction.py`): before strict validation, each quote is checked for verbatim presence in the input report and word count. Near-miss quotes are repaired to an exact report substring via `approach1/schema/quote_helpers.py` (normalized matching, sliding token windows, similarity/overlap thresholds). Unrepairable quotes are dropped with `validation_warnings` logged; the case can still succeed with fewer quotes.
+2. **Validate** (`validate_prediction_obj`): hard cap `KEY_EVIDENCE_MAX_WORDS = 35`; each quote must be a non-empty verbatim substring of the tier report text; max 6 items.
+
+Per-case prediction records store `validation_warnings`, `n_validation_warnings`, `n_repaired_key_evidence_quotes`, and `n_dropped_key_evidence_quotes`. Console logs prefix `[VALIDATION]` (first 8 warnings per case).
+
+Approach 2 mirrors this at phrase level: `_sanitize_phrase_item_for_validation` / `_sanitize_extraction_obj_for_validation` in `approach2/extraction/schema.py` repair or drop invalid `seed_aligned_phrases` / `denovo_candidate_phrases` quotes before schema validation.
+
+### 5. Remove deprecated LLM `temperature` setting
+
+Chat-completions payloads omit the deprecated `temperature` parameter; sampling follows the deployment default. Removed CLI flag, env/config constants, resume fingerprint fields, a-priori estimate fields, and related logging from both approaches.
 
 | File | Changes |
 | ---- | ------- |
 | `approach1/config.py` | Removed `TEMPERATURE` constant and env var |
-| `approach1/api/client.py` | Removed `temperature` from payload and request log |
-| `approach1/cli.py` | Removed `--temperature` and startup assignment |
+| `approach1/api/client.py` | Removed `temperature` from payload |
+| `approach1/cli.py` | Removed `--temperature` |
 | `approach1/checkpoint/fingerprint.py` | Removed `temperature` from config fingerprint |
-| `approach1/__init__.py` | Removed `TEMPERATURE` export |
-| `README.md` | Removed `TEMPERATURE` env and `--temperature` flag docs |
+| `approach2/extraction/config.py` | Removed `TEMPERATURE` / `LLM_TEMPERATURE` wiring |
+| `approach2/api/client.py` | Removed `temperature` from payload |
+| `approach2/cli.py` | Removed `--temperature` |
+| `approach2/checkpoint.py` | Removed `temperature` from split resume fingerprint |
+| `README.md` | Removed `TEMPERATURE` env and `--temperature` docs |
+
+**Resume note:** existing `COMPLETED.json` checkpoints that fingerprinted `temperature` may be treated as incompatible after this change.
+
+### New / updated CLI flags (Approach 1)
+
+| Flag | Purpose |
+| ---- | ------- |
+| `--model` | Select `gpt-5-nano` (default) or `gpt-5` |
+| `--reasoning-effort` | GPT-5 reasoning effort (`medium` default; `none` omits) |
+
+### Example usage
+
+```bash
+cd pipeline
+export SANDBOX_API_KEY=...          # gpt-5-nano
+export NEW_SECUREGPT_API_KEY=...     # gpt-5
+
+# Approach 1 — full GPT-5 with medium reasoning
+python approach1.py \
+  --csv-path /path/to/cases.csv \
+  --outdir ./outputs/approach1_gpt5 \
+  --model gpt-5 \
+  --reasoning-effort medium \
+  -y
+
+# Approach 2 nested eval — nano default, no reasoning field
+python approach2.py \
+  --csv-path /path/to/cases.csv \
+  --out_dir ./outputs/approach2_nano \
+  --model gpt-5-nano \
+  --reasoning-effort none \
+  --yes
+```
 
 ### Verification
 
 ```bash
 cd pipeline
-grep -ri temperature approach1 approach2 tests/approach1 tests/approach2
-SANDBOX_API_KEY=dummy .venv/bin/python -m pytest tests/approach1 tests/approach2 -q
+grep -ri temperature approach1 approach2 tests/approach1 tests/approach2   # should find docs/tests only
+SANDBOX_API_KEY=dummy NEW_SECUREGPT_API_KEY=dummy .venv/bin/python -m pytest \
+  tests/common tests/approach1 tests/approach2 -q
 ```

@@ -53,6 +53,7 @@ from approach2.config import (
     TARGET_NAME_DISPERSION_SCORE,
     TARGET_NAME_RELAPSE_STATUS,
 )
+from approach2.extraction.pipeline import case_extraction_checkpoint_available
 from approach2.extraction import (
     MAX_TOKENS,
     Tee,
@@ -96,6 +97,7 @@ from approach2.text_utils import (
 )
 
 from approach2.eval_data import (
+    has_usable_mri_report,
     ensure_case_id,
     get_target_frame,
     summarize_cohort_report_availability,
@@ -174,7 +176,10 @@ def estimate_nested_pipeline_llm_cost(
     prompt_counts: List[int] = []
     prompt_modes: List[str] = []
     skipped_completed_splits = 0
+    skipped_existing_checkpoints = 0
     modes_to_run = planned_llm_extraction_modes(args)
+    resume = bool(getattr(args, "resume", True))
+    force_reextract = bool(getattr(args, "force_reextract", False))
 
     for split_num, (train_pos, _test_pos) in enumerate(outer_splits, 1):
         split_id = f"outer_split_{split_num:03d}"
@@ -185,9 +190,27 @@ def estimate_nested_pipeline_llm_cost(
 
         outer_train_case_df = target_df.iloc[train_pos].copy().reset_index(drop=True)
         for mode in modes_to_run:
-            for row_index in outer_train_case_df["row_index"].astype(int).tolist():
+            mode_dir = os.path.join(split_dir, mode)
+            train_indices = outer_train_case_df["row_index"].astype(int).tolist()
+            if mode == "mri":
+                train_indices = [i for i in train_indices if has_usable_mri_report(raw_df, int(i))]
+            for row_index in train_indices:
                 case = make_case_from_row(raw_df, int(row_index))
                 if _is_missing_text(_selected_report_text(case, mode)):
+                    continue
+                if (
+                    resume
+                    and not force_reextract
+                    and case_extraction_checkpoint_available(
+                        checkpoint_dir=mode_dir,
+                        row_index=int(row_index),
+                        case_id=str(case.case_id),
+                        report_mode=mode,
+                        split_id=split_id,
+                        split_role="train",
+                    )
+                ):
+                    skipped_existing_checkpoints += 1
                     continue
                 prompt = build_user_prompt(case, mode)
                 prompt_counts.append(estimate_prompt_tokens_from_messages(build_chat_messages(prompt)))
@@ -200,6 +223,7 @@ def estimate_nested_pipeline_llm_cost(
     )
     estimate["n_outer_splits"] = len(outer_splits)
     estimate["n_completed_splits_skipped_in_estimate"] = skipped_completed_splits
+    estimate["n_calls_skipped_existing_checkpoints"] = skipped_existing_checkpoints
     estimate["planned_report_modes"] = modes_to_run
     return estimate
 
@@ -380,7 +404,12 @@ def main() -> None:
 
             estimate = estimate_nested_pipeline_llm_cost(raw_df, target_df, outer_splits, args)
             print_apriori_cost_estimate_report(estimate, label="nested outer-training extraction pipeline")
-            print(f"[A-PRIORI] n_outer_splits={estimate['n_outer_splits']} completed_splits_skipped={estimate['n_completed_splits_skipped_in_estimate']} planned_report_modes={estimate['planned_report_modes']}")
+            print(
+                f"[A-PRIORI] n_outer_splits={estimate['n_outer_splits']} "
+                f"completed_splits_skipped={estimate['n_completed_splits_skipped_in_estimate']} "
+                f"existing_case_checkpoints_skipped={estimate.get('n_calls_skipped_existing_checkpoints', 0)} "
+                f"planned_report_modes={estimate['planned_report_modes']}"
+            )
             write_apriori_cost_estimate_json(args.out_dir, estimate, label="nested outer-training extraction pipeline")
             confirm_cost_estimate_or_exit(estimate, assume_yes=args.yes)
 

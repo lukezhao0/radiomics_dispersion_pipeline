@@ -24,7 +24,9 @@ from ..api.cost import (
 
 def _ensure_client_configured() -> None:
     if not llm_config.URL or not llm_config.HEADERS:
-        llm_config.configure_llm()
+        raise RuntimeError(
+            "LLM API is not configured. Call configure_llm(model, ...) before making API calls."
+        )
 
 
 def _post_chat_completion(

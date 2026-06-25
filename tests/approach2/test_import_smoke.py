@@ -37,3 +37,4 @@ def test_approach2_cli_help():
     )
     assert result.returncode == 0, result.stderr
     assert "--csv-path" in result.stdout
+    assert "--model" in result.stdout

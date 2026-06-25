@@ -274,6 +274,32 @@ def _record_matches_request(
     )
 
 
+def case_extraction_checkpoint_available(
+    checkpoint_dir: Optional[str],
+    row_index: int,
+    case_id: str,
+    report_mode: str,
+    split_id: Optional[str],
+    split_role: Optional[str],
+) -> bool:
+    """Return True when a reusable per-case extraction checkpoint exists on disk."""
+    checkpoint_root = _checkpoint_root_dir(
+        checkpoint_dir=checkpoint_dir,
+        report_mode=report_mode,
+        split_id=split_id,
+        split_role=split_role,
+    )
+    if not checkpoint_root:
+        return False
+    ckpt_path = _case_checkpoint_path(checkpoint_root, row_index, case_id, report_mode)
+    if not os.path.exists(ckpt_path):
+        return False
+    rec = _load_json_record(ckpt_path)
+    return rec is not None and _record_matches_request(
+        rec, row_index, case_id, report_mode, split_id, split_role
+    )
+
+
 def _extract_single_subset_record_with_checkpoint(
     df: pd.DataFrame,
     row_index: int,

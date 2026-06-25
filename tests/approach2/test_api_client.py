@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 def test_api_client_omits_temperature_in_payload() -> None:
@@ -10,6 +13,8 @@ def test_api_client_omits_temperature_in_payload() -> None:
     import approach2.api.client as client_mod
     import approach2.extraction.config as llm_config
 
+    os.environ.setdefault("SANDBOX_API_KEY", "test-key")
+    llm_config.configure_llm("gpt-5-nano")
     llm_config.REASONING_EFFORT = "medium"
 
     mock_response = MagicMock()
@@ -36,6 +41,10 @@ def test_call_securegpt_chat_resolves_token_estimate() -> None:
     # Load through the same entry path as the nested CLI (avoids direct client import cycle).
     import approach2.extraction  # noqa: F401
     import approach2.api.client as client_mod
+    import approach2.extraction.config as llm_config
+
+    os.environ.setdefault("SANDBOX_API_KEY", "test-key")
+    llm_config.configure_llm("gpt-5-nano")
 
     assert hasattr(client_mod, "estimate_prompt_tokens_from_messages")
 
@@ -56,3 +65,14 @@ def test_call_securegpt_chat_resolves_token_estimate() -> None:
         out = client_mod.call_securegpt_chat("test prompt")
 
     assert out == '{"case_id": "c1"}'
+
+
+def test_ensure_client_configured_requires_explicit_configure(monkeypatch) -> None:
+    import approach2.api.client as client_mod
+    import approach2.extraction.config as llm_config
+
+    monkeypatch.setattr(llm_config, "URL", None)
+    monkeypatch.setattr(llm_config, "HEADERS", None)
+
+    with pytest.raises(RuntimeError, match="configure_llm"):
+        client_mod._ensure_client_configured()

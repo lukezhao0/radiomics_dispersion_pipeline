@@ -10,7 +10,7 @@ import pandas as pd
 
 from approach2.splits import case_id_list_hash
 
-RESUME_SCRIPT_VERSION = 1
+RESUME_SCRIPT_VERSION = 2
 
 _REQUIRED_MARKER_KEYS = (
     "split_id",
@@ -40,6 +40,8 @@ def build_split_resume_fingerprint(args: Any, split_id: str) -> Dict[str, Any]:
         ),
         "modalities": sorted(getattr(args, "modalities", []) or []),
         "representations": sorted(getattr(args, "representations", []) or []),
+        "model": str(getattr(args, "model", "") or ""),
+        "reasoning_effort": str(getattr(args, "reasoning_effort", "") or ""),
     }
 
 
@@ -60,6 +62,8 @@ def split_resume_fingerprints_compatible(
         "target_stable_features_per_modality",
         "modalities",
         "representations",
+        "model",
+        "reasoning_effort",
     ]
     for key in keys:
         if saved.get(key) != current.get(key):

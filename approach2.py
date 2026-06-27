@@ -17,7 +17,7 @@ python pipeline/approach2.py \
   --csv-path /Users/lukezhao/projects/onc/data/PROCESSED_TRIMMED_path_cases_MRI_status.csv \
   --out_dir /Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach2_pipeline_062426 \
   --modalities mri path combined \
-  --representations group_binary group_count group_status phrase_binary
+  --representations group_binary group_count group_status phrase_binary \
   --model gpt-5-nano \
   --reasoning-effort low
 
@@ -27,7 +27,7 @@ python pipeline/approach2.py \
   --modalities mri path combined \
   --representations group_binary group_count group_status phrase_binary \
   --model gpt-5 \
-  --reasoning-effort low
+  --reasoning-effort medium
 
 
 python pipeline/approach2.py \

@@ -13,6 +13,7 @@ Both pipelines use the Stanford Health Care AI Sandbox (GPT-5-nano Global) for L
 | **Auxiliary entry** | —                                                                        | `approach2_aux.py` (extraction), `approach2_generate_reports.py` (HTML reports) |
 | **Package**         | `approach1/`                                                             | `approach2/`                                                                    |
 | **Change log**      | [`approach1_progress.md`](approach1_progress.md)                         | [`approach2_progress.md`](approach2_progress.md)                                |
+| **Cross-run compare** | [`experiment_comparison/`](experiment_comparison/) — compare completed runs (config-driven metrics, plots, HTML report) | Both approaches |
 
 **Approach 1** runs a SecureGPT few-shot evaluation across shot sets and modality tiers (MRI, pathology, combined). It predicts continuous dispersion, binary high/low dispersion, and relapse status directly from report text.
 
@@ -205,6 +206,18 @@ python approach2_aux.py \
   --yes
 ```
 
+### Cross-experiment comparison
+
+Compare completed Approach 1 and Approach 2 run directories (and optional manual legacy metrics) in a single HTML report with plots for performance, cost, modality, shotset, reasoning, model family, and feature representation.
+
+```bash
+cd pipeline
+python -m experiment_comparison.run_comparison \
+  --config experiment_comparison/configs/comparison_0623_0624.yaml
+```
+
+See [`experiment_comparison/README.md`](experiment_comparison/README.md) for configuration, supported artifacts, best-metric rules, and how to add future runs.
+
 ## Project layout
 
 ```
@@ -249,6 +262,13 @@ pipeline/
 │   ├── prompts/                # extraction templates, builder
 │   ├── html_report.py
 │   └── logging_setup.py
+├── experiment_comparison/      # cross-run comparison (config → CSV + plots + HTML)
+│   ├── README.md
+│   ├── run_comparison.py       # CLI entry point
+│   ├── load_config.py, discover_results.py, extract_metrics.py
+│   ├── normalize_results.py, plot_comparisons.py, generate_report.py
+│   ├── configs/                # example YAML configs per comparison batch
+│   └── output/                 # generated reports (gitignored in practice)
 └── tests/
     ├── approach1/
     └── approach2/
@@ -288,6 +308,7 @@ SANDBOX_API_KEY=dummy python approach2_generate_reports.py --help
   - Supporting plots in `report_plots/` and `interpretability_plots/`
   - Markdown mirrors: `automated_results_report.md`, `interpretability_report.md`, `missed_case_error_analysis.md`
 - **Standalone extraction** writes per-case JSON/CSV extractions and `llm_token_cost_report.json`.
+- **Experiment comparison** (`experiment_comparison/`) aggregates metrics across multiple completed run directories into `normalized_metrics_long.csv`, comparison plots, and `comparison_report.html`. Supports manual legacy metrics via config. Does not re-run either pipeline.
 
 See [`approach1_progress.md`](approach1_progress.md) and [`approach2_progress.md`](approach2_progress.md) for detailed output schemas and methodology notes.
 
@@ -302,3 +323,4 @@ See [`approach1_progress.md`](approach1_progress.md) and [`approach2_progress.md
 
 - [`approach1_progress.md`](approach1_progress.md) — API migration, cost estimation, resume/checkpoint behavior, modality tiers.
 - [`approach2_progress.md`](approach2_progress.md) — pathology-informed MRI calibration, relapse prediction, fold parallelism, modularization history, and deferred regression-test work.
+- [`experiment_comparison/README.md`](experiment_comparison/README.md) — cross-run comparison framework, config format, and current 0623–0624 experiment batch.

@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Experiment Comparison Report</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem; color: #1a1a1a; max-width: 1200px; }
+    h1, h2, h3 { color: #111; }
+    .meta { color: #555; font-size: 0.95rem; }
+    table.data-table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin: 1rem 0; }
+    table.data-table th, table.data-table td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+    table.data-table th { background: #f5f5f5; }
+    .plot-block { margin: 2rem 0; padding: 1rem; border: 1px solid #e0e0e0; border-radius: 6px; }
+    .plot-block img { max-width: 100%; height: auto; }
+    .caption { color: #444; font-size: 0.9rem; }
+    .missing { background: #fff8f0; }
+    section { margin-bottom: 2rem; }
+  </style>
+</head>
+<body>
+  <h1>Clinical Tumor Dispersion — Cross-Experiment Comparison</h1>
+  <p class="meta">Generated: 2026-06-27 18:30 UTC | Config: /Users/lukezhao/projects/onc/pipeline/experiment_comparison/configs/comparison_0623_0624.yaml</p>
+
+  <section>
+    <h2>Included Runs</h2>
+    <table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>run_id</th>
+      <th>label</th>
+      <th>approach</th>
+      <th>model</th>
+      <th>reasoning</th>
+      <th>pipeline_version</th>
+      <th>path</th>
+      <th>notes</th>
+      <th>source</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>approach1_062326_nano_medium</td>
+      <td>Approach 1 062326 Nano Medium</td>
+      <td>approach1</td>
+      <td>gpt-5-nano</td>
+      <td>medium/default</td>
+      <td>new_refactored</td>
+      <td>/Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach1_pipeline_062326</td>
+      <td>New refactored pipeline; default/medium reasoning.</td>
+      <td>directory</td>
+    </tr>
+    <tr>
+      <td>approach2_062326_nano_minimal</td>
+      <td>Approach 2 062326 Nano Minimal</td>
+      <td>approach2</td>
+      <td>gpt-5-nano</td>
+      <td>minimal</td>
+      <td>new_refactored</td>
+      <td>/Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach2_pipeline_062326</td>
+      <td>New refactored pipeline; minimal reasoning.</td>
+      <td>directory</td>
+    </tr>
+    <tr>
+      <td>approach1_062426_nano_low</td>
+      <td>Approach 1 062426 Nano Low</td>
+      <td>approach1</td>
+      <td>gpt-5-nano</td>
+      <td>low</td>
+      <td>new_refactored</td>
+      <td>/Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach1_pipeline_062426</td>
+      <td>New refactored pipeline; low reasoning.</td>
+      <td>directory</td>
+    </tr>
+    <tr>
+      <td>approach2_062426_nano_low</td>
+      <td>Approach 2 062426 Nano Low</td>
+      <td>approach2</td>
+      <td>gpt-5-nano</td>
+      <td>low</td>
+      <td>new_refactored</td>
+      <td>/Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach2_pipeline_062426</td>
+      <td>New refactored pipeline; low reasoning.</td>
+      <td>directory</td>
+    </tr>
+    <tr>
+      <td>approach2_062426_nano_medium</td>
+      <td>Approach 2 062426 Nano Medium</td>
+      <td>approach2</td>
+      <td>gpt-5-nano</td>
+      <td>medium/default</td>
+      <td>new_refactored</td>
+      <td>/Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach2_pipeline_062426_medium</td>
+      <td>New refactored pipeline; medium/default reasoning.</td>
+      <td>directory</td>
+    </tr>
+    <tr>
+      <td>approach1_old_gpt5_medium</td>
+      <td>Approach 1 Old GPT5 Medium</td>
+      <td>approach1</td>
+      <td>gpt-5</td>
+      <td>medium/default</td>
+      <td>old</td>
+      <td></td>
+      <td>Legacy old-pipeline GPT-5 results (manually entered).</td>
+      <td>manual</td>
+    </tr>
+    <tr>
+      <td>approach2_old_gpt5_medium</td>
+      <td>Approach 2 Old GPT5 Medium</td>
+      <td>approach2</td>
+      <td>gpt-5</td>
+      <td>medium/default</td>
+      <td>old</td>
+      <td></td>
+      <td>Legacy old-pipeline GPT-5 results (manually entered).</td>
+      <td>manual</td>
+    </tr>
+  </tbody>
+</table>
+  </section>
+
+  <section>
+    <h2>Manual Legacy Metrics</h2>
+    <table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>run_id</th>
+      <th>label</th>
+      <th>metric_key</th>
+      <th>value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>approach1_old_gpt5_medium</td>
+      <td>Approach 1 Old GPT5 Medium</td>
+      <td>high_low_accuracy_best</td>
+      <td>0.8061</td>
+    </tr>
+    <tr>
+      <td>approach1_old_gpt5_medium</td>
+      <td>Approach 1 Old GPT5 Medium</td>
+      <td>regression_spearman_best</td>
+      <td>0.7798</td>
+    </tr>
+    <tr>
+      <td>approach2_old_gpt5_medium</td>
+      <td>Approach 2 Old GPT5 Medium</td>
+      <td>high_low_auroc_best</td>
+      <td>0.8100</td>
+    </tr>
+    <tr>
+      <td>approach2_old_gpt5_medium</td>
+      <td>Approach 2 Old GPT5 Medium</td>
+      <td>regression_spearman_best</td>
+      <td>0.6490</td>
+    </tr>
+  </tbody>
+</table>
+  </section>
+
+  <section>
+    <h2>Data Availability Summary</h2>
+    <p>Which key metrics were found per run (from discovered artifacts).</p>
+    <table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>run_id</th>
+      <th>n_discovered_files</th>
+      <th>n_metric_rows</th>
+      <th>has_run_directory</th>
+      <th>has_dispersion_regression_spearman_rho</th>
+      <th>n_dispersion_regression_spearman_rho</th>
+      <th>has_dispersion_regression_mae</th>
+      <th>n_dispersion_regression_mae</th>
+      <th>has_dispersion_high_low_accuracy</th>
+      <th>n_dispersion_high_low_accuracy</th>
+      <th>has_dispersion_high_low_auroc</th>
+      <th>n_dispersion_high_low_auroc</th>
+      <th>has_relapse_auroc</th>
+      <th>n_relapse_auroc</th>
+      <th>has_relapse_f1</th>
+      <th>n_relapse_f1</th>
+      <th>has_operational_cost_usd_actual</th>
+      <th>n_operational_cost_usd_actual</th>
+      <th>has_operational_cost_usd_apriori</th>
+      <th>n_operational_cost_usd_apriori</th>
+      <th>has_operational_api_calls</th>
+      <th>n_operational_api_calls</th>
+      <th>has_operational_runtime_seconds</th>
+      <th>n_operational_runtime_seconds</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>approach1_062326_nano_medium</td>
+      <td>66</td>
+      <td>246</td>
+      <td>True</td>
+      <td>True</td>
+      <td>12</td>
+      <td>True</td>
+      <td>12</td>
+      <td>True</td>
+      <td>12</td>
+      <td>False</td>
+      <td>0</td>
+      <td>True</td>
+      <td>18</td>
+      <td>True</td>
+      <td>18</td>
+      <td>True</td>
+      <td>6</td>
+      <td>False</td>
+      <td>0</td>
+      <td>True</td>
+      <td>6</td>
+      <td>False</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td>approach2_062326_nano_minimal</td>
+      <td>1086</td>
+      <td>1881</td>
+      <td>True</td>
+      <td>True</td>
+      <td>65</td>
+      <td>True</td>
+      <td>65</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>1</td>
+      <td>False</td>
+      <td>0</td>
+      <td>True</td>
+      <td>1</td>
+      <td>False</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td>approach1_062426_nano_low</td>
+      <td>67</td>
+      <td>255</td>
+      <td>True</td>
+      <td>True</td>
+      <td>12</td>
+      <td>True</td>
+      <td>12</td>
+      <td>True</td>
+      <td>12</td>
+      <td>False</td>
+      <td>0</td>
+      <td>True</td>
+      <td>18</td>
+      <td>True</td>
+      <td>18</td>
+      <td>True</td>
+      <td>7</td>
+      <td>False</td>
+      <td>0</td>
+      <td>True</td>
+      <td>7</td>
+      <td>False</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td>approach2_062426_nano_low</td>
+      <td>1027</td>
+      <td>1893</td>
+      <td>True</td>
+      <td>True</td>
+      <td>65</td>
+      <td>True</td>
+      <td>65</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>2</td>
+      <td>True</td>
+      <td>1</td>
+      <td>True</td>
+      <td>3</td>
+      <td>False</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td>approach2_062426_nano_medium</td>
+      <td>959</td>
+      <td>1893</td>
+      <td>True</td>
+      <td>True</td>
+      <td>65</td>
+      <td>True</td>
+      <td>65</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>39</td>
+      <td>True</td>
+      <td>2</td>
+      <td>True</td>
+      <td>1</td>
+      <td>True</td>
+      <td>3</td>
+      <td>False</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td>approach1_old_gpt5_medium</td>
+      <td>0</td>
+      <td>2</td>
+      <td>False</td>
+      <td>True</td>
+      <td>1</td>
+      <td>False</td>
+      <td>0</td>
+      <td>True</td>
+      <td>1</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td>approach2_old_gpt5_medium</td>
+      <td>0</td>
+      <td>2</td>
+      <td>False</td>
+      <td>True</td>
+      <td>1</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+      <td>True</td>
+      <td>1</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+      <td>False</td>
+      <td>0</td>
+    </tr>
+  </tbody>
+</table>
+  </section>
+
+  <section>
+    <h2>Key Comparison — Best Metrics per Run</h2>
+    <p>Best = max for Spearman/AUROC/accuracy/F1; min for MAE/RMSE/Brier/cost. See <code>summary_best_metrics.csv</code> for full provenance.</p>
+    <table class="dataframe data-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>run_label</th>
+      <th>approach</th>
+      <th>target</th>
+      <th>metric</th>
+      <th>value</th>
+      <th>best_rule</th>
+      <th>modality</th>
+      <th>shotset</th>
+      <th>model_key</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Approach 1 062326 Nano Medium</td>
+      <td>approach1</td>
+      <td>dispersion_high_low</td>
+      <td>accuracy</td>
+      <td>0.770000</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td>shotset_high_0_2_low_101_102</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 062326 Nano Medium</td>
+      <td>approach1</td>
+      <td>dispersion_high_low</td>
+      <td>f1</td>
+      <td>0.757895</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td>shotset_high_0_2_low_101_102</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 062326 Nano Medium</td>
+      <td>approach1</td>
+      <td>dispersion_regression</td>
+      <td>spearman_rho</td>
+      <td>0.689606</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td>shotset_high_0_2_low_101_102</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 062326 Nano Medium</td>
+      <td>approach1</td>
+      <td>relapse</td>
+      <td>accuracy</td>
+      <td>0.817073</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td>shotset_high_0_2_low_101_102</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 062326 Nano Medium</td>
+      <td>approach1</td>
+      <td>relapse</td>
+      <td>auroc</td>
+      <td>0.832983</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td>shotset_high_0_2_low_101_102</td>
+      <td>llm_relapse_pred</td>
+    </tr>
+    <tr>
+      <td>Approach 1 062326 Nano Medium</td>
+      <td>approach1</td>
+      <td>relapse</td>
+      <td>f1</td>
+      <td>0.615385</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td>shotset_high_0_2_low_101_102</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 062426 Nano Low</td>
+      <td>approach1</td>
+      <td>dispersion_high_low</td>
+      <td>accuracy</td>
+      <td>0.800000</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td>shotset_high_0_2_low_101_102</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 062426 Nano Low</td>
+      <td>approach1</td>
+      <td>dispersion_high_low</td>
+      <td>f1</td>
+      <td>0.782609</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td>shotset_high_0_2_low_101_102</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 062426 Nano Low</td>
+      <td>approach1</td>
+      <td>dispersion_regression</td>
+      <td>spearman_rho</td>
+      <td>0.658877</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td>shotset_high_0_2_low_101_102</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 062426 Nano Low</td>
+      <td>approach1</td>
+      <td>relapse</td>
+      <td>accuracy</td>
+      <td>0.829268</td>
+      <td>max</td>
+      <td>mri_only</td>
+      <td>shotset_high_0_19_low_82_85</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 062426 Nano Low</td>
+      <td>approach1</td>
+      <td>relapse</td>
+      <td>auroc</td>
+      <td>0.850840</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td>shotset_high_0_2_low_101_102</td>
+      <td>predicted_dispersion_score</td>
+    </tr>
+    <tr>
+      <td>Approach 1 062426 Nano Low</td>
+      <td>approach1</td>
+      <td>relapse</td>
+      <td>f1</td>
+      <td>0.549020</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td>shotset_high_0_19_low_82_85</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 Old GPT5 Medium</td>
+      <td>approach1</td>
+      <td>dispersion_high_low</td>
+      <td>accuracy</td>
+      <td>0.806100</td>
+      <td>max</td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 Old GPT5 Medium</td>
+      <td>approach1</td>
+      <td>dispersion_regression</td>
+      <td>spearman_rho</td>
+      <td>0.779800</td>
+      <td>max</td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 2 062326 Nano Minimal</td>
+      <td>approach2</td>
+      <td>dispersion_high_low</td>
+      <td>accuracy</td>
+      <td>0.708333</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td></td>
+      <td>elasticnet_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062326 Nano Minimal</td>
+      <td>approach2</td>
+      <td>dispersion_high_low</td>
+      <td>auroc</td>
+      <td>0.759846</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td></td>
+      <td>ridge_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062326 Nano Minimal</td>
+      <td>approach2</td>
+      <td>dispersion_high_low</td>
+      <td>f1</td>
+      <td>0.734177</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td></td>
+      <td>elasticnet_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062326 Nano Minimal</td>
+      <td>approach2</td>
+      <td>dispersion_regression</td>
+      <td>spearman_rho</td>
+      <td>0.509954</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>pls_regression</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062326 Nano Minimal</td>
+      <td>approach2</td>
+      <td>relapse</td>
+      <td>accuracy</td>
+      <td>0.850000</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>linear_svm</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062326 Nano Minimal</td>
+      <td>approach2</td>
+      <td>relapse</td>
+      <td>auroc</td>
+      <td>0.898000</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>ridge_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062326 Nano Minimal</td>
+      <td>approach2</td>
+      <td>relapse</td>
+      <td>f1</td>
+      <td>0.551724</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>ridge_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Low</td>
+      <td>approach2</td>
+      <td>dispersion_high_low</td>
+      <td>accuracy</td>
+      <td>0.708333</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td></td>
+      <td>elasticnet_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Low</td>
+      <td>approach2</td>
+      <td>dispersion_high_low</td>
+      <td>auroc</td>
+      <td>0.763889</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>elasticnet_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Low</td>
+      <td>approach2</td>
+      <td>dispersion_high_low</td>
+      <td>f1</td>
+      <td>0.734177</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td></td>
+      <td>elasticnet_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Low</td>
+      <td>approach2</td>
+      <td>dispersion_regression</td>
+      <td>spearman_rho</td>
+      <td>0.509954</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>pls_regression</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Low</td>
+      <td>approach2</td>
+      <td>relapse</td>
+      <td>accuracy</td>
+      <td>0.850000</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>linear_svm</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Low</td>
+      <td>approach2</td>
+      <td>relapse</td>
+      <td>auroc</td>
+      <td>0.898000</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>ridge_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Low</td>
+      <td>approach2</td>
+      <td>relapse</td>
+      <td>f1</td>
+      <td>0.551724</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>ridge_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Medium</td>
+      <td>approach2</td>
+      <td>dispersion_high_low</td>
+      <td>accuracy</td>
+      <td>0.780000</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>elasticnet_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Medium</td>
+      <td>approach2</td>
+      <td>dispersion_high_low</td>
+      <td>auroc</td>
+      <td>0.854167</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>ridge_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Medium</td>
+      <td>approach2</td>
+      <td>dispersion_high_low</td>
+      <td>f1</td>
+      <td>0.784314</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>elasticnet_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Medium</td>
+      <td>approach2</td>
+      <td>dispersion_regression</td>
+      <td>spearman_rho</td>
+      <td>0.566539</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td></td>
+      <td>huber_regression</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Medium</td>
+      <td>approach2</td>
+      <td>relapse</td>
+      <td>accuracy</td>
+      <td>0.840000</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>linear_svm</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Medium</td>
+      <td>approach2</td>
+      <td>relapse</td>
+      <td>auroc</td>
+      <td>0.913690</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>ridge_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 062426 Nano Medium</td>
+      <td>approach2</td>
+      <td>relapse</td>
+      <td>f1</td>
+      <td>0.571429</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td></td>
+      <td>ridge_logistic</td>
+    </tr>
+    <tr>
+      <td>Approach 2 Old GPT5 Medium</td>
+      <td>approach2</td>
+      <td>dispersion_high_low</td>
+      <td>auroc</td>
+      <td>0.810000</td>
+      <td>max</td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 2 Old GPT5 Medium</td>
+      <td>approach2</td>
+      <td>dispersion_regression</td>
+      <td>spearman_rho</td>
+      <td>0.649000</td>
+      <td>max</td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+  </section>
+
+  <section>
+    <h2>Strongest Observed Results</h2>
+    <ul><li>Best <strong>spearman_rho</strong> (dispersion_regression): <strong>0.7798</strong> — Approach 1 Old GPT5 Medium (approach1, gpt-5, reasoning=medium/default)</li><li>Best <strong>auroc</strong> (relapse): <strong>0.9137</strong> — Approach 2 062426 Nano Medium (approach2, gpt-5-nano, reasoning=medium/default)</li><li>Best <strong>accuracy</strong> (relapse): <strong>0.8500</strong> — Approach 2 062326 Nano Minimal (approach2, gpt-5-nano, reasoning=minimal)</li></ul>
+  </section>
+
+  <section>
+    <h2>Comparison Plots</h2>
+    
+                <section class="plot-block">
+                  <h3>Best Regression Spearman</h3>
+                  <p class="caption">Best regression Spearman ρ per run (max across shotsets/modalities/models). Addresses: which run achieves strongest dispersion score ranking?</p>
+                  <img src="plots/best_regression_spearman.png" alt="best_regression_spearman" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Best High Low Classification</h3>
+                  <p class="caption">Best high/low dispersion classification performance per run. Uses AUROC when available; otherwise accuracy (clearly labeled). Addresses: which run best separates high vs low dispersion?</p>
+                  <img src="plots/best_high_low_classification.png" alt="best_high_low_classification" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Best Relapse Classification</h3>
+                  <p class="caption">Best relapse classification performance per run (AUROC preferred, else F1/accuracy). Addresses: which run best predicts relapse?</p>
+                  <img src="plots/best_relapse_classification.png" alt="best_relapse_classification" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Approach1 Shotset</h3>
+                  <p class="caption">Approach 1 shotset comparison within each run. Addresses: which few-shot exemplar set performs best?</p>
+                  <img src="plots/approach1_shotset.png" alt="approach1_shotset" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Modality Comparison</h3>
+                  <p class="caption">Modality comparison (MRI-only, pathology-only, combined). Addresses: which input modality combination is most informative?</p>
+                  <img src="plots/modality_comparison.png" alt="modality_comparison" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Reasoning Comparison</h3>
+                  <p class="caption">Reasoning-effort comparison across runs, faceted by approach. Addresses: do minimal, low, and medium/default reasoning differ meaningfully?</p>
+                  <img src="plots/reasoning_comparison.png" alt="reasoning_comparison" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Approach2 Model Family</h3>
+                  <p class="caption">Approach 2 model-family comparison for regression Spearman and high/low AUROC. Addresses: which supervised model family performs best?</p>
+                  <img src="plots/approach2_model_family.png" alt="approach2_model_family" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Approach2 Representation</h3>
+                  <p class="caption">Approach 2 feature-representation comparison. Addresses: which lexical representation is most predictive?</p>
+                  <img src="plots/approach2_representation.png" alt="approach2_representation" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Cost Comparison</h3>
+                  <p class="caption">Estimated a priori vs actual LLM cost per run. Addresses: how do cost estimates compare to billed usage?</p>
+                  <img src="plots/cost_comparison.png" alt="cost_comparison" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Performance Vs Cost</h3>
+                  <p class="caption">Performance vs actual LLM cost scatter. Addresses: what is the performance–cost trade-off?</p>
+                  <img src="plots/performance_vs_cost.png" alt="performance_vs_cost" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Performance Vs Runtime</h3>
+                  <p class="caption">Performance vs runtime or API calls. Addresses: what is the performance–compute trade-off?</p>
+                  <img src="plots/performance_vs_runtime.png" alt="performance_vs_runtime" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Api Token Usage</h3>
+                  <p class="caption">API calls and token usage comparison across runs. Addresses: how do runs differ in LLM resource consumption?</p>
+                  <img src="plots/api_token_usage.png" alt="api_token_usage" />
+                </section>
+                
+                <section class="plot-block">
+                  <h3>Summary Heatmap</h3>
+                  <p class="caption">Normalized heatmap of key metrics across runs. Addresses: which runs are strongest across multiple dimensions?</p>
+                  <img src="plots/summary_heatmap.png" alt="summary_heatmap" />
+                </section>
+                
+  </section>
+
+  <section>
+    <h2>Limitations &amp; Missing Data</h2>
+    <ul><li><strong>approach1_062326_nano_medium</strong>: missing dispersion_high_low_auroc, operational_cost_usd_apriori, operational_runtime_seconds</li><li><strong>approach2_062326_nano_minimal</strong>: missing operational_cost_usd_apriori, operational_runtime_seconds</li><li><strong>approach1_062426_nano_low</strong>: missing dispersion_high_low_auroc, operational_cost_usd_apriori, operational_runtime_seconds</li><li><strong>approach2_062426_nano_low</strong>: missing operational_runtime_seconds</li><li><strong>approach2_062426_nano_medium</strong>: missing operational_runtime_seconds</li><li><strong>approach1_old_gpt5_medium</strong>: missing run_directory, dispersion_regression_mae, dispersion_high_low_auroc, relapse_auroc, relapse_f1, operational_cost_usd_actual, operational_cost_usd_apriori, operational_api_calls…</li><li><strong>approach2_old_gpt5_medium</strong>: missing run_directory, dispersion_regression_mae, dispersion_high_low_accuracy, relapse_auroc, relapse_f1, operational_cost_usd_actual, operational_cost_usd_apriori, operational_api_calls…</li></ul>
+    <p>Normalized long-form metrics: <code>normalized_metrics_long.csv</code> (6172 rows).</p>
+  </section>
+</body>
+</html>

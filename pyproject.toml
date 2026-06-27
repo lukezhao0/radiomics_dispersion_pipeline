@@ -16,6 +16,7 @@ dependencies = [
     "scikit-learn>=1.3",
     "scipy>=1.10",
     "matplotlib>=3.7",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -25,7 +26,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["approach1*", "approach2*", "common*"]
+include = ["approach1*", "approach2*", "common*", "experiment_comparison*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

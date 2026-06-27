@@ -32,6 +32,7 @@ approach1/prompts/templates.py
 approach1/prompts/tokens.py
 approach1/schema/__init__.py
 approach1/schema/prediction.py
+approach1/schema/quote_helpers.py
 approach1/schema/records.py
 approach2/__init__.py
 approach2/audit.py
@@ -72,7 +73,19 @@ approach2/prompts/__init__.py
 approach2/prompts/builder.py
 approach2/prompts/extraction.py
 common/__init__.py
+common/cost_comparison.py
 common/llm_models.py
+common/reasoning_effort.py
+experiment_comparison/__init__.py
+experiment_comparison/__main__.py
+experiment_comparison/constants.py
+experiment_comparison/discover_results.py
+experiment_comparison/extract_metrics.py
+experiment_comparison/generate_report.py
+experiment_comparison/load_config.py
+experiment_comparison/normalize_results.py
+experiment_comparison/plot_comparisons.py
+experiment_comparison/run_comparison.py
 onc_pipeline.egg-info/PKG-INFO
 onc_pipeline.egg-info/SOURCES.txt
 onc_pipeline.egg-info/dependency_links.txt

@@ -1,0 +1,8 @@
+run_id,n_discovered_files,n_metric_rows,has_run_directory,has_dispersion_regression_spearman_rho,n_dispersion_regression_spearman_rho,has_dispersion_regression_mae,n_dispersion_regression_mae,has_dispersion_high_low_accuracy,n_dispersion_high_low_accuracy,has_dispersion_high_low_auroc,n_dispersion_high_low_auroc,has_relapse_auroc,n_relapse_auroc,has_relapse_f1,n_relapse_f1,has_operational_cost_usd_actual,n_operational_cost_usd_actual,has_operational_cost_usd_apriori,n_operational_cost_usd_apriori,has_operational_api_calls,n_operational_api_calls,has_operational_runtime_seconds,n_operational_runtime_seconds
+approach1_062326_nano_medium,66,246,True,True,12,True,12,True,12,False,0,True,18,True,18,True,6,False,0,True,6,False,0
+approach2_062326_nano_minimal,1086,1881,True,True,65,True,65,True,39,True,39,True,39,True,39,True,1,False,0,True,1,False,0
+approach1_062426_nano_low,67,255,True,True,12,True,12,True,12,False,0,True,18,True,18,True,7,False,0,True,7,False,0
+approach2_062426_nano_low,1027,1893,True,True,65,True,65,True,39,True,39,True,39,True,39,True,2,True,1,True,3,False,0
+approach2_062426_nano_medium,959,1893,True,True,65,True,65,True,39,True,39,True,39,True,39,True,2,True,1,True,3,False,0
+approach1_old_gpt5_medium,0,2,False,True,1,False,0,True,1,False,0,False,0,False,0,False,0,False,0,False,0,False,0
+approach2_old_gpt5_medium,0,2,False,True,1,False,0,False,0,True,1,False,0,False,0,False,0,False,0,False,0,False,0

@@ -1,0 +1,92 @@
+# Cross-experiment comparison: Approach 1 & 2 runs from 0623–0624 (SABCS)
+# Paths are relative to this config file's directory.
+
+runs:
+  - id: approach1_062326_nano_medium
+    path: ../../../sabcs/securegpt_dispersion_approach1_pipeline_062326
+    label: "Approach 1 062326 Nano Medium"
+    approach: "approach1"
+    model: "gpt-5-nano"
+    reasoning: "medium/default"
+    pipeline_version: "new_refactored"
+    notes: "New refactored pipeline; default/medium reasoning."
+
+  - id: approach2_062326_nano_minimal
+    path: ../../../sabcs/securegpt_dispersion_approach2_pipeline_062326
+    label: "Approach 2 062326 Nano Minimal"
+    approach: "approach2"
+    model: "gpt-5-nano"
+    reasoning: "minimal"
+    pipeline_version: "new_refactored"
+    notes: "New refactored pipeline; minimal reasoning."
+
+  - id: approach1_062426_nano_low
+    path: ../../../sabcs/securegpt_dispersion_approach1_pipeline_062426
+    label: "Approach 1 062426 Nano Low"
+    approach: "approach1"
+    model: "gpt-5-nano"
+    reasoning: "low"
+    pipeline_version: "new_refactored"
+    notes: "New refactored pipeline; low reasoning."
+
+  - id: approach2_062426_nano_low
+    path: ../../../sabcs/securegpt_dispersion_approach2_pipeline_062426
+    label: "Approach 2 062426 Nano Low"
+    approach: "approach2"
+    model: "gpt-5-nano"
+    reasoning: "low"
+    pipeline_version: "new_refactored"
+    notes: "New refactored pipeline; low reasoning."
+
+  - id: approach2_062426_nano_medium
+    path: ../../../sabcs/securegpt_dispersion_approach2_pipeline_062426_medium
+    label: "Approach 2 062426 Nano Medium"
+    approach: "approach2"
+    model: "gpt-5-nano"
+    reasoning: "medium/default"
+    pipeline_version: "new_refactored"
+    notes: "New refactored pipeline; medium/default reasoning."
+
+manual_results:
+  - id: approach1_old_gpt5_medium
+    label: "Approach 1 Old GPT5 Medium"
+    approach: "approach1"
+    model: "gpt-5"
+    reasoning: "medium/default"
+    pipeline_version: "old"
+    notes: "Legacy old-pipeline GPT-5 results (manually entered)."
+    metrics:
+      high_low_accuracy_best: 0.8061
+      regression_spearman_best: 0.7798
+
+  - id: approach2_old_gpt5_medium
+    label: "Approach 2 Old GPT5 Medium"
+    approach: "approach2"
+    model: "gpt-5"
+    reasoning: "medium/default"
+    pipeline_version: "old"
+    notes: "Legacy old-pipeline GPT-5 results (manually entered)."
+    metrics:
+      high_low_auroc_best: 0.810
+      regression_spearman_best: 0.649
+
+output:
+  output_dir: ../output/comparison_0623_0624
+  html_filename: comparison_report.html
+
+plots:
+  - best_regression_spearman
+  - best_high_low_classification
+  - best_relapse_classification
+  - approach1_shotset
+  - modality_comparison
+  - reasoning_comparison
+  - approach2_model_family
+  - approach2_representation
+  - cost_comparison
+  - performance_vs_cost
+  - performance_vs_runtime
+  - api_token_usage
+  - summary_heatmap
+
+metric_aliases: {}

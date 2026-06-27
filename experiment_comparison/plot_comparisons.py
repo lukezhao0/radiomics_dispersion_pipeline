@@ -19,9 +19,10 @@ PLOT_CAPTIONS: Dict[str, str] = {
         "Addresses: which run achieves strongest dispersion score ranking?"
     ),
     "best_high_low_classification": (
-        "Best high/low dispersion classification performance per run. "
-        "Uses AUROC when available; otherwise accuracy (clearly labeled). "
-        "Addresses: which run best separates high vs low dispersion?"
+        "Best high/low dispersion classification per run. "
+        "Left: AUROC (Approach 1 uses dispersion_score_pred ranking; Approach 2 uses model probabilities). "
+        "Right: accuracy (Approach 1 uses LLM binary label; Approach 2 uses thresholded predictions). "
+        "Addresses: which run best separates high vs low dispersion under comparable and native metrics?"
     ),
     "best_relapse_classification": (
         "Best relapse classification performance per run (AUROC preferred, else F1/accuracy). "
@@ -180,12 +181,56 @@ def plot_best_regression_spearman(df: pd.DataFrame, out_dir: Path) -> Optional[P
 
 
 def plot_best_high_low_classification(df: pd.DataFrame, out_dir: Path) -> Optional[Path]:
-    return _plot_bar_best_metric(
-        df, "dispersion_high_low", "auroc",
-        "Best High/Low Dispersion Classification by Run", "AUROC", out_dir,
-        "best_high_low_classification",
-        fallback=("dispersion_high_low", "accuracy"),
+    auroc_best = _best_per_run(df, "dispersion_high_low", "auroc")
+    acc_best = _best_per_run(df, "dispersion_high_low", "accuracy")
+    if auroc_best.empty and acc_best.empty:
+        logger.warning("No high/low classification data for best_high_low_classification")
+        return None
+
+    run_labels = sorted(
+        set(auroc_best["run_label"].tolist()) | set(acc_best["run_label"].tolist())
     )
+    x = np.arange(len(run_labels))
+    width = 0.35
+    fig, axes = plt.subplots(1, 2, figsize=(max(14, len(run_labels) * 0.9), 5))
+
+    def _values(frame: pd.DataFrame) -> List[float]:
+        return [
+            frame[frame["run_label"] == rl]["value"].iloc[0]
+            if len(frame[frame["run_label"] == rl]) else np.nan
+            for rl in run_labels
+        ]
+
+    panels = [
+        (axes[0], auroc_best, "AUROC", "Best High/Low AUROC by Run",
+         "Approach 1: dispersion_score_pred; Approach 2: classifier probability"),
+        (axes[1], acc_best, "Accuracy", "Best High/Low Accuracy by Run",
+         "Approach 1: dispersion_high_low_pred; Approach 2: thresholded class"),
+    ]
+    for ax, frame, ylabel, title, subtitle in panels:
+        if frame.empty:
+            ax.set_title(f"{title}\n(no data)")
+            ax.axis("off")
+            continue
+        colors = frame.set_index("run_label").reindex(run_labels)["approach"].map(
+            {"approach1": "#4C78A8", "approach2": "#F58518"}
+        ).fillna("#72B7B2")
+        vals = _values(frame)
+        bars = ax.bar(x, vals, width=0.6, color=colors.values)
+        ax.set_title(f"{title}\n{subtitle}", fontsize=9)
+        ax.set_ylabel(ylabel)
+        ax.set_xticks(x)
+        ax.set_xticklabels(run_labels, rotation=45, ha="right", fontsize=7)
+        for bar, val in zip(bars, vals):
+            if not np.isnan(val):
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                    f"{val:.3f}", ha="center", va="bottom", fontsize=7,
+                )
+
+    fig.suptitle("Best High/Low Dispersion Classification by Run", fontsize=11)
+    fig.tight_layout()
+    return _save_fig(fig, out_dir, "best_high_low_classification")
 
 
 def plot_best_relapse_classification(df: pd.DataFrame, out_dir: Path) -> Optional[Path]:

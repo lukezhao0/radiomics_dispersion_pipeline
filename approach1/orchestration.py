@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from typing import Any, Dict, List, Tuple
@@ -178,6 +179,8 @@ def save_aggregate_summary(root_out_dir: str, summaries: List[Dict[str, Any]]) -
             "dispersion_spearman_rho": metrics.get("dispersion_regression", {}).get("spearman_rho"),
             "dispersion_high_low_accuracy": metrics.get("dispersion_high_low", {}).get("accuracy"),
             "dispersion_high_low_f1": metrics.get("dispersion_high_low", {}).get("f1"),
+            "dispersion_high_low_auroc": metrics.get("dispersion_high_low", {}).get("auroc"),
+            "dispersion_high_low_auprc": metrics.get("dispersion_high_low", {}).get("auprc"),
             "relapse_accuracy": metrics.get("relapse_label", {}).get("accuracy"),
             "relapse_f1": metrics.get("relapse_label", {}).get("f1"),
             "needle_single_token_rate": metrics.get("needle_retrieval", {}).get("single_token_rate"),
@@ -186,3 +189,35 @@ def save_aggregate_summary(root_out_dir: str, summaries: List[Dict[str, Any]]) -
     path = os.path.join(root_out_dir, "all_tiers_metrics_summary.csv")
     df.to_csv(path, index=False)
     print(f"[SUMMARY] Wrote aggregate metrics summary: {path}")
+
+
+def refresh_evaluations_from_predictions(root_out_dir: str) -> int:
+    """Re-run evaluate_and_plot from saved predictions CSVs (no API calls)."""
+    from .evaluation.results_report import discover_config_dirs
+
+    summaries: List[Dict[str, Any]] = []
+    n_refreshed = 0
+    for shotset_name, modality, config_dir in discover_config_dirs(root_out_dir):
+        pred_csv = os.path.join(config_dir, "predictions_testing_cases.csv")
+        if not os.path.isfile(pred_csv):
+            print(f"[RE-EVAL] Skipping {shotset_name}/{modality}: no predictions_testing_cases.csv")
+            continue
+        pred_df = pd.read_csv(pred_csv)
+        run_cfg_path = os.path.join(config_dir, "run_config.json")
+        run_cfg: Dict[str, Any] = {}
+        if os.path.isfile(run_cfg_path):
+            with open(run_cfg_path, "r", encoding="utf-8") as f:
+                run_cfg = json.load(f)
+        title_suffix = f"{shotset_name} / {modality_display_name(modality)}"
+        print(f"[RE-EVAL] Refreshing metrics: {title_suffix}")
+        eval_summary = evaluate_and_plot(pred_df, config_dir, title_suffix)
+        summaries.append({
+            "shotset_name": shotset_name,
+            "modality": modality,
+            "n_skipped_missing_mri": run_cfg.get("n_skipped_missing_mri", 0),
+            "metrics": eval_summary,
+        })
+        n_refreshed += 1
+    if summaries:
+        save_aggregate_summary(root_out_dir, summaries)
+    return n_refreshed

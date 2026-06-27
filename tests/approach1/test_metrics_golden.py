@@ -59,6 +59,38 @@ def test_dispersion_high_low_accuracy():
     _, _, metrics = evaluate_dispersion_high_low(df)
     assert metrics["accuracy"] == pytest.approx(1.0)
     assert metrics["f1"] == pytest.approx(1.0)
+    assert metrics["auroc"] == pytest.approx(1.0)
+    assert metrics["auprc"] == pytest.approx(1.0)
+    assert metrics["auroc_score_source"] == "dispersion_score_pred"
+
+
+def test_dispersion_high_low_auroc_undefined_single_class():
+    df = prepare_predictions_for_eval(
+        pd.DataFrame([
+            {
+                "dispersion_true": 100.0,
+                "dispersion_score_pred": 95.0,
+                "dispersion_high_low_pred": 1,
+                "relapse_true": 1,
+                "relapse_pred": 1,
+                "retrieval_token_exact_match": 1,
+                "key_evidence": [],
+            },
+            {
+                "dispersion_true": 90.0,
+                "dispersion_score_pred": 88.0,
+                "dispersion_high_low_pred": 1,
+                "relapse_true": 1,
+                "relapse_pred": 0,
+                "retrieval_token_exact_match": 1,
+                "key_evidence": [],
+            },
+        ])
+    )
+    _, _, metrics = evaluate_dispersion_high_low(df)
+    assert metrics["accuracy"] == pytest.approx(1.0)
+    assert metrics["auroc"] is None
+    assert "one class" in metrics["auroc_note"].lower()
 
 
 def test_relapse_classification_metrics():

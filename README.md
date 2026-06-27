@@ -145,11 +145,13 @@ python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1 -
 
 Common flags: `--resume` / `--no-resume`, `--skip-completed-configs`, `--force-rerun-cases`, `--skip-preflight`, `--results-report-only`, `--model`, `--deployment` (alias for `--model`).
 
-Regenerate the HTML review page without API calls:
+Regenerate metrics, aggregate summary, and HTML review page from saved predictions (no API calls):
 
 ```bash
 python approach1.py --results-report-only --outdir ./outputs/approach1
 ```
+
+This re-evaluates each completed shotset/modality config from `predictions_testing_cases.csv`, refreshes `evaluation_metrics_summary.json` and `all_tiers_metrics_summary.csv` (including high/low AUROC/AUPRC), then rebuilds `approach1_results_report.html`. Use after pipeline metric changes or before cross-run comparison.
 
 ### Approach 2 — nested lexical + ML evaluation
 
@@ -208,7 +210,7 @@ python approach2_aux.py \
 
 ### Cross-experiment comparison
 
-Compare completed Approach 1 and Approach 2 run directories (and optional manual legacy metrics) in a single HTML report with plots for performance, cost, modality, shotset, reasoning, model family, and feature representation.
+Compare completed Approach 1 and Approach 2 run directories (and optional manual legacy metrics) in a single HTML report. The high/low classification plot shows **AUROC and accuracy on separate panels** so Approach 1 score-based AUROC is not conflated with label-based accuracy.
 
 ```bash
 cd pipeline
@@ -216,7 +218,7 @@ python -m experiment_comparison.run_comparison \
   --config experiment_comparison/configs/comparison_0623_0624.yaml
 ```
 
-See [`experiment_comparison/README.md`](experiment_comparison/README.md) for configuration, supported artifacts, best-metric rules, and how to add future runs.
+For Approach 1 runs created before high/low AUROC was added, backfill first with `--results-report-only` (see above). See [`experiment_comparison/README.md`](experiment_comparison/README.md) for configuration, supported artifacts, best-metric rules, and how to add future runs.
 
 ## Project layout
 
@@ -300,7 +302,7 @@ SANDBOX_API_KEY=dummy python approach2_generate_reports.py --help
 
 ## Outputs and logging
 
-- **Approach 1** writes per-config predictions, evaluation plots, `token_cost_report.json`, and a consolidated **`approach1_results_report.html`** under `--outdir`.
+- **Approach 1** writes per-config predictions, evaluation plots, `token_cost_report.json`, and a consolidated **`approach1_results_report.html`** under `--outdir`. Per-config and aggregate summaries include dispersion regression metrics plus high/low **accuracy/F1** (from the LLM binary label) and **AUROC/AUPRC** (from predicted dispersion score ranking).
 - **Approach 2** writes nested CV artifacts under `--out_dir`, including per-split lexicons, predictions, metrics (`nested_outer_metrics_summary.csv`), and three HTML review pages:
   - `automated_results_report.html` — performance metrics, calibration/ROC/PR plots, per-fold summaries
   - `interpretability_report.html` — feature density, coefficients, stability, MRI–pathology reliability
@@ -308,7 +310,7 @@ SANDBOX_API_KEY=dummy python approach2_generate_reports.py --help
   - Supporting plots in `report_plots/` and `interpretability_plots/`
   - Markdown mirrors: `automated_results_report.md`, `interpretability_report.md`, `missed_case_error_analysis.md`
 - **Standalone extraction** writes per-case JSON/CSV extractions and `llm_token_cost_report.json`.
-- **Experiment comparison** (`experiment_comparison/`) aggregates metrics across multiple completed run directories into `normalized_metrics_long.csv`, comparison plots, and `comparison_report.html`. Supports manual legacy metrics via config. Does not re-run either pipeline.
+- **Experiment comparison** (`experiment_comparison/`) aggregates metrics across multiple completed run directories into `normalized_metrics_long.csv`, comparison plots (including dual-panel high/low AUROC + accuracy), and `comparison_report.html`. Supports manual legacy metrics via config. Does not re-run either pipeline; use Approach 1 `--results-report-only` to refresh metrics before comparing.
 
 See [`approach1_progress.md`](approach1_progress.md) and [`approach2_progress.md`](approach2_progress.md) for detailed output schemas and methodology notes.
 

@@ -108,15 +108,49 @@ def evaluate_dispersion_high_low(df: pd.DataFrame) -> Tuple[str, pd.DataFrame, D
     f1v = f1_score(y_true, y_pred, zero_division=0)
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
 
+    metrics: Dict[str, Any] = {"accuracy": acc, "f1": f1v, "confusion_matrix": cm}
+
+    score_mask = df["dispersion_true_high_low"].notna() & np.isfinite(df["dispersion_score_pred"])
+    score_used = df.loc[score_mask]
     lines = [
         f"Dispersion high/low (true high defined as dispersion_true >= {int(DISPERSION_HIGH_THRESHOLD)}):",
-        f"  N_used = {len(used)} / {len(df)}",
-        f"  Accuracy = {acc:.4f}",
+        f"  N_used (label) = {len(used)} / {len(df)}",
+        f"  Accuracy = {acc:.4f}  (from dispersion_high_low_pred)",
         f"  F1       = {f1v:.4f}",
         "  Confusion matrix (rows=true [0,1], cols=pred [0,1]):",
         f"  {cm.tolist()}",
     ]
-    return "\n".join(lines), used, {"accuracy": acc, "f1": f1v, "confusion_matrix": cm}
+
+    if len(score_used) > 0:
+        y_true_score = score_used["dispersion_true_high_low"].astype(int).values
+        scores = score_used["dispersion_score_pred"].astype(float).values
+        auroc, auprc, note = safe_auroc_auprc(y_true_score, scores)
+        t_best, f1_best = best_f1_threshold(y_true_score, scores)
+        metrics.update(
+            {
+                "auroc": auroc,
+                "auprc": auprc,
+                "auroc_note": note,
+                "best_f1_at_score_threshold": f1_best,
+                "best_score_threshold": t_best,
+                "auroc_score_source": "dispersion_score_pred",
+            }
+        )
+        lines.extend(
+            [
+                f"  N_used (score) = {len(score_used)} / {len(df)}",
+                "  Score-based ranking (dispersion_score_pred vs true high/low):",
+                f"    AUROC = {auroc if auroc is not None else 'NA'}",
+                f"    AUPRC = {auprc if auprc is not None else 'NA'}",
+                f"    Best F1 @ score threshold = {f1_best:.4f} (t={t_best:.4f})",
+                f"    Note: {note}",
+            ]
+        )
+    else:
+        metrics["auroc_note"] = "No valid rows with dispersion_score_pred for AUROC."
+        lines.append("  Score-based AUROC: no valid dispersion_score_pred rows.")
+
+    return "\n".join(lines), used, metrics
 
 
 def evaluate_relapse_labels(df: pd.DataFrame) -> Tuple[str, pd.DataFrame, Dict[str, Any]]:

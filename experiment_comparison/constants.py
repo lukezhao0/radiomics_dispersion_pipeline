@@ -49,6 +49,7 @@ METRIC_ALIASES: Dict[str, str] = {
     "dispersion_high_low_accuracy": "accuracy",
     "dispersion_high_low_f1": "f1",
     "dispersion_high_low_auroc": "auroc",
+    "dispersion_high_low_auprc": "auprc",
     "relapse_accuracy": "accuracy",
     "relapse_f1": "f1",
     "relapse_auroc": "auroc",

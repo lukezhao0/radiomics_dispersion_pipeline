@@ -36,10 +36,19 @@ YAML/JSON config
 
 **Approach 1** (from each run directory):
 
-- `all_tiers_metrics_summary.csv` — per shotset × modality metrics
-- `evaluation_metrics_summary.json` — detailed eval per config (including relapse predictor comparison)
+- `all_tiers_metrics_summary.csv` — per shotset × modality metrics (including `dispersion_high_low_auroc` / `dispersion_high_low_auprc`)
+- `evaluation_metrics_summary.json` — detailed eval per config (`dispersion_high_low`, relapse predictor comparison, etc.)
 - `llm_token_cost_report.json` and/or per-config `token_cost_report.json` (summed when no run-level aggregate exists)
 - `run.log` — runtime estimate when parseable
+
+**Approach 1 high/low metric semantics** (important for cross-run plots):
+
+| Metric | Source | Meaning |
+|--------|--------|---------|
+| `accuracy`, `f1` | `dispersion_high_low_pred` | LLM's explicit binary high/low label |
+| `auroc`, `auprc` | `dispersion_score_pred` | Ranking quality of continuous predicted score vs true high/low |
+
+Approach 2 high/low AUROC uses classifier probabilities from `nested_outer_metrics_summary.csv`. The comparison report plots **both** AUROC and accuracy side-by-side so these distinct quantities are not mixed on one axis.
 
 **Approach 2**:
 
@@ -66,7 +75,7 @@ Within each run, “best” is the max/min across shotsets, modalities, represen
 The report includes plots (when data is available) for:
 
 1. Best regression Spearman ρ by run
-2. Best high/low classification (AUROC preferred; accuracy labeled when AUROC absent)
+2. Best high/low classification — **dual panel**: AUROC (left) and accuracy (right); Approach 1 AUROC uses `dispersion_score_pred`, Approach 2 uses model probabilities
 3. Best relapse classification
 4. Approach 1 shotset comparison
 5. Modality comparison (MRI-only, pathology-only, combined)
@@ -105,6 +114,16 @@ experiment_comparison/output/comparison_0623_0624/
 ├── raw_extracted_metrics.csv
 └── plots/*.png
 ```
+
+### Backfilling Approach 1 metrics after pipeline updates
+
+If an Approach 1 run directory predates high/low AUROC support, refresh metrics from saved predictions (no API calls):
+
+```bash
+python approach1.py --results-report-only --outdir /path/to/approach1_run_dir
+```
+
+This re-runs `evaluate_and_plot` on each config's `predictions_testing_cases.csv`, updates `evaluation_metrics_summary.json` and `all_tiers_metrics_summary.csv`, then rebuilds `approach1_results_report.html`. Re-run the comparison CLI afterward.
 
 ## Configuration
 
@@ -178,9 +197,10 @@ Plus two manually entered legacy GPT-5 (old pipeline) reference points.
 
 ## Known limitations
 
-The framework is robust to missing files and metrics; gaps are listed in the HTML report **Limitations** section. Common gaps in the current runs:
+The framework is robust to missing files and metrics; gaps are listed in the HTML report **Limitations** section. Common gaps:
 
-- **Approach 1 high/low AUROC** — not emitted by the pipeline; plots fall back to accuracy (labeled).
+- **Approach 1 high/low AUROC on old run dirs** — requires a one-time `--results-report-only` backfill (see above) before comparison will include Approach 1 on the AUROC panel.
+- **Legacy manual Approach 1 metrics** — the bundled config supplies accuracy only for old GPT-5; AUROC appears on the accuracy panel unless you add `high_low_auroc_best` to `manual_results`.
 - **Wall-clock runtime** — only estimated when run logs contain parseable session timestamps.
 - **A priori cost** — only when `llm_cost_estimate_apriori.json` exists in the run directory.
 - **Teacher–student / ablation pathways** — compared only if present as `dataset_key` values in `nested_outer_metrics_summary.csv`.
@@ -198,3 +218,4 @@ The framework is robust to missing files and metrics; gaps are listed in the HTM
 - Add explicit runtime fields to pipeline outputs for reliable performance-vs-runtime plots.
 - Unit tests with small fixture CSV/JSON snippets per approach.
 - Optional SVG export and old-vs-new pipeline version faceting in plots.
+- Add `high_low_auroc_best` to manual legacy entries where historical AUROC was computed offline.

@@ -163,11 +163,13 @@ def extract_approach1_summary_csv(run: RunConfig, path: str, aliases: Dict[str, 
       else:
         target, task_type = "unknown", "unknown"
 
-      metric_name = col
+      notes = ""
+      if col in ("dispersion_high_low_auroc", "dispersion_high_low_auprc"):
+        notes = "score_source=dispersion_score_pred"
       m = _emit(
-        run=run, metric=metric_name, value=row[col], raw_metric=col,
+        run=run, metric=col, value=row[col], raw_metric=col,
         target=target, task_type=task_type, modality=modality, shotset=shotset,
-        source_file=path, aliases=aliases,
+        source_file=path, aliases=aliases, notes=notes,
       )
       if m:
         metrics.append(m)
@@ -205,10 +207,13 @@ def extract_approach1_eval_json(
     for k, v in section.items():
       if k == "confusion_matrix":
         continue
+      note = ""
+      if section_key == "dispersion_high_low" and k in ("auroc", "auprc"):
+        note = "score_source=dispersion_score_pred"
       m = _emit(
         run=run, metric=k, value=v, raw_metric=f"{section_key}.{k}",
         target=target, task_type=task_type, modality=modality, shotset=shotset,
-        source_file=path, aliases=aliases,
+        source_file=path, aliases=aliases, notes=note,
       )
       if m:
         metrics.append(m)

@@ -22,7 +22,7 @@ from .api import (
 from .data import load_cases
 from .logging_setup import Tee
 from .evaluation.results_report import build_approach1_results_html
-from .orchestration import run_one_config, save_aggregate_summary
+from .orchestration import refresh_evaluations_from_predictions, run_one_config, save_aggregate_summary
 from .splits import build_run_configs
 from common.llm_models import DEFAULT_MODEL, normalize_model_name
 from common.reasoning_effort import DEFAULT_REASONING_EFFORT, REASONING_EFFORT_CHOICES
@@ -73,12 +73,14 @@ def main() -> None:
     parser.add_argument(
         "--results-report-only",
         action="store_true",
-        help="Build approach1_results_report.html from existing artifacts in --outdir and exit (no API calls).",
+        help="Re-evaluate metrics/plots from saved predictions, rebuild aggregate summary and HTML report (no API calls).",
     )
     args = parser.parse_args()
     selected_model = normalize_model_name(args.deployment or args.model)
 
     if args.results_report_only:
+        n = refresh_evaluations_from_predictions(args.outdir)
+        print(f"[RE-EVAL] Refreshed {n} config evaluation(s) from saved predictions.")
         build_approach1_results_html(args.outdir)
         return
 

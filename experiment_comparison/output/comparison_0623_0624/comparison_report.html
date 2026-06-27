@@ -19,7 +19,7 @@
 </head>
 <body>
   <h1>Clinical Tumor Dispersion — Cross-Experiment Comparison</h1>
-  <p class="meta">Generated: 2026-06-27 18:32 UTC | Config: /Users/lukezhao/projects/onc/pipeline/experiment_comparison/configs/comparison_0623_0624.yaml</p>
+  <p class="meta">Generated: 2026-06-27 19:02 UTC | Config: /Users/lukezhao/projects/onc/pipeline/experiment_comparison/configs/comparison_0623_0624.yaml</p>
 
   <section>
     <h2>Included Runs</h2>
@@ -195,7 +195,7 @@
     <tr>
       <td>approach1_062326_nano_medium</td>
       <td>66</td>
-      <td>254</td>
+      <td>290</td>
       <td>True</td>
       <td>True</td>
       <td>12</td>
@@ -203,8 +203,8 @@
       <td>12</td>
       <td>True</td>
       <td>12</td>
-      <td>False</td>
-      <td>0</td>
+      <td>True</td>
+      <td>12</td>
       <td>True</td>
       <td>18</td>
       <td>True</td>
@@ -247,7 +247,7 @@
     <tr>
       <td>approach1_062426_nano_low</td>
       <td>67</td>
-      <td>255</td>
+      <td>291</td>
       <td>True</td>
       <td>True</td>
       <td>12</td>
@@ -255,8 +255,8 @@
       <td>12</td>
       <td>True</td>
       <td>12</td>
-      <td>False</td>
-      <td>0</td>
+      <td>True</td>
+      <td>12</td>
       <td>True</td>
       <td>18</td>
       <td>True</td>
@@ -411,6 +411,17 @@
       <td>Approach 1 062326 Nano Medium</td>
       <td>approach1</td>
       <td>dispersion_high_low</td>
+      <td>auroc</td>
+      <td>0.868659</td>
+      <td>max</td>
+      <td>mri_plus_pathology</td>
+      <td>shotset_high_0_19_low_82_85</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 062326 Nano Medium</td>
+      <td>approach1</td>
+      <td>dispersion_high_low</td>
       <td>f1</td>
       <td>0.757895</td>
       <td>max</td>
@@ -468,6 +479,17 @@
       <td>dispersion_high_low</td>
       <td>accuracy</td>
       <td>0.800000</td>
+      <td>max</td>
+      <td>pathology_only</td>
+      <td>shotset_high_0_2_low_101_102</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Approach 1 062426 Nano Low</td>
+      <td>approach1</td>
+      <td>dispersion_high_low</td>
+      <td>auroc</td>
+      <td>0.837560</td>
       <td>max</td>
       <td>pathology_only</td>
       <td>shotset_high_0_2_low_101_102</td>
@@ -823,7 +845,7 @@
                 
                 <section class="plot-block">
                   <h3>Best High Low Classification</h3>
-                  <p class="caption">Best high/low dispersion classification performance per run. Uses AUROC when available; otherwise accuracy (clearly labeled). Addresses: which run best separates high vs low dispersion?</p>
+                  <p class="caption">Best high/low dispersion classification per run. Left: AUROC (Approach 1 uses dispersion_score_pred ranking; Approach 2 uses model probabilities). Right: accuracy (Approach 1 uses LLM binary label; Approach 2 uses thresholded predictions). Addresses: which run best separates high vs low dispersion under comparable and native metrics?</p>
                   <img src="plots/best_high_low_classification.png" alt="best_high_low_classification" />
                 </section>
                 
@@ -897,8 +919,8 @@
 
   <section>
     <h2>Limitations &amp; Missing Data</h2>
-    <ul><li><strong>approach1_062326_nano_medium</strong>: missing dispersion_high_low_auroc, operational_cost_usd_apriori, operational_runtime_seconds</li><li><strong>approach2_062326_nano_minimal</strong>: missing operational_cost_usd_apriori, operational_runtime_seconds</li><li><strong>approach1_062426_nano_low</strong>: missing dispersion_high_low_auroc, operational_cost_usd_apriori, operational_runtime_seconds</li><li><strong>approach2_062426_nano_low</strong>: missing operational_runtime_seconds</li><li><strong>approach2_062426_nano_medium</strong>: missing operational_runtime_seconds</li><li><strong>approach1_old_gpt5_medium</strong>: missing run_directory, dispersion_regression_mae, dispersion_high_low_auroc, relapse_auroc, relapse_f1, operational_cost_usd_actual, operational_cost_usd_apriori, operational_api_calls…</li><li><strong>approach2_old_gpt5_medium</strong>: missing run_directory, dispersion_regression_mae, dispersion_high_low_accuracy, relapse_auroc, relapse_f1, operational_cost_usd_actual, operational_cost_usd_apriori, operational_api_calls…</li></ul>
-    <p>Normalized long-form metrics: <code>normalized_metrics_long.csv</code> (6180 rows).</p>
+    <ul><li><strong>approach1_062326_nano_medium</strong>: missing operational_cost_usd_apriori, operational_runtime_seconds</li><li><strong>approach2_062326_nano_minimal</strong>: missing operational_cost_usd_apriori, operational_runtime_seconds</li><li><strong>approach1_062426_nano_low</strong>: missing operational_cost_usd_apriori, operational_runtime_seconds</li><li><strong>approach2_062426_nano_low</strong>: missing operational_runtime_seconds</li><li><strong>approach2_062426_nano_medium</strong>: missing operational_runtime_seconds</li><li><strong>approach1_old_gpt5_medium</strong>: missing run_directory, dispersion_regression_mae, dispersion_high_low_auroc, relapse_auroc, relapse_f1, operational_cost_usd_actual, operational_cost_usd_apriori, operational_api_calls…</li><li><strong>approach2_old_gpt5_medium</strong>: missing run_directory, dispersion_regression_mae, dispersion_high_low_accuracy, relapse_auroc, relapse_f1, operational_cost_usd_actual, operational_cost_usd_apriori, operational_api_calls…</li></ul>
+    <p>Normalized long-form metrics: <code>normalized_metrics_long.csv</code> (6252 rows).</p>
   </section>
 </body>
 </html>

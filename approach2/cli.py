@@ -124,10 +124,11 @@ from common.llm_models import SUPPORTED_MODELS
 from common.reasoning_effort import DEFAULT_REASONING_EFFORT, REASONING_EFFORT_CHOICES
 from approach2.splits import build_outer_splits, log_outer_split_summary, validate_outer_splits
 from approach2.api.cost import (
+    APRIORI_INITIAL_FILENAME,
     initialize_cost_tracker_for_resume,
     set_cost_persist_path,
-    write_apriori_cost_estimate_json,
 )
+from common.cost_comparison import is_partial_resume_apriori_estimate
 from approach2.reports import (
     generate_all_reports,
     pathology_metrics_on_mri_complete,
@@ -171,6 +172,8 @@ def estimate_nested_pipeline_llm_cost(
     target_df: pd.DataFrame,
     outer_splits: Sequence[Tuple[np.ndarray, np.ndarray]],
     args: argparse.Namespace,
+    *,
+    honor_resume_skips: bool = True,
 ) -> Dict[str, Any]:
     """Build the exact prompts scheduled by nested extraction and estimate cost."""
     prompt_counts: List[int] = []
@@ -178,13 +181,13 @@ def estimate_nested_pipeline_llm_cost(
     skipped_completed_splits = 0
     skipped_existing_checkpoints = 0
     modes_to_run = planned_llm_extraction_modes(args)
-    resume = bool(getattr(args, "resume", True))
-    force_reextract = bool(getattr(args, "force_reextract", False))
+    resume = bool(getattr(args, "resume", True)) and honor_resume_skips
+    force_reextract = bool(getattr(args, "force_reextract", False)) and honor_resume_skips
 
     for split_num, (train_pos, _test_pos) in enumerate(outer_splits, 1):
         split_id = f"outer_split_{split_num:03d}"
         split_dir = os.path.join(args.out_dir, "outer_splits", split_id)
-        if args.resume and args.skip_completed_splits and os.path.exists(_split_resume_marker(split_dir)):
+        if resume and args.skip_completed_splits and os.path.exists(_split_resume_marker(split_dir)):
             skipped_completed_splits += 1
             continue
 
@@ -226,6 +229,103 @@ def estimate_nested_pipeline_llm_cost(
     estimate["n_calls_skipped_existing_checkpoints"] = skipped_existing_checkpoints
     estimate["planned_report_modes"] = modes_to_run
     return estimate
+
+
+def reconstruct_outer_splits_from_out_dir(
+    out_dir: str,
+    target_df: pd.DataFrame,
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    """Rebuild outer split index tuples from saved per-split manifests."""
+    from .checkpoint import load_split_manifest
+
+    split_root = os.path.join(out_dir, "outer_splits")
+    if not os.path.isdir(split_root):
+        return []
+    case_id_to_pos = {str(row.case_id): int(pos) for pos, row in target_df.iterrows()}
+    outer_splits: List[Tuple[np.ndarray, np.ndarray]] = []
+    for split_name in sorted(os.listdir(split_root)):
+        if not split_name.startswith("outer_split_"):
+            continue
+        split_dir = os.path.join(split_root, split_name)
+        if not os.path.isdir(split_dir):
+            continue
+        manifest = load_split_manifest(split_dir, split_name)
+        if not manifest:
+            continue
+        train_ids = [str(x) for x in manifest.get("train_case_ids", [])]
+        test_ids = [str(x) for x in manifest.get("test_case_ids", [])]
+        if not train_ids or not test_ids:
+            continue
+        try:
+            train_pos = np.array([case_id_to_pos[cid] for cid in train_ids], dtype=int)
+            test_pos = np.array([case_id_to_pos[cid] for cid in test_ids], dtype=int)
+        except KeyError:
+            continue
+        outer_splits.append((train_pos, test_pos))
+    return outer_splits
+
+
+def _report_backfill_args_from_out_dir(out_dir: str) -> argparse.Namespace:
+    """Best-effort CLI args for report-time full-pipeline a-priori backfill."""
+    session_apriori_path = os.path.join(out_dir, "llm_cost_estimate_apriori.json")
+    planned_modes = ["mri", "path"]
+    if os.path.isfile(session_apriori_path):
+        with open(session_apriori_path, "r", encoding="utf-8") as f:
+            session_apriori = json.load(f)
+        if isinstance(session_apriori, dict):
+            modes = session_apriori.get("planned_report_modes")
+            if isinstance(modes, list) and modes:
+                planned_modes = [str(m) for m in modes]
+    modalities = list(planned_modes)
+    if len(modalities) == 2:
+        modalities.append("combined")
+    return argparse.Namespace(
+        out_dir=out_dir,
+        resume=True,
+        skip_completed_splits=True,
+        force_reextract=False,
+        modalities=modalities,
+        enable_pathology_calibration="combined" in modalities,
+        enable_teacher_student="combined" in modalities,
+    )
+
+
+def estimate_full_pipeline_apriori_for_out_dir(out_dir: str, csv_path: str) -> Dict[str, Any]:
+    """Recompute the initial full-pipeline a-priori estimate from saved split manifests."""
+    from .eval_data import get_target_frame
+    from .extraction.data import load_cases
+
+    raw_df = load_cases(csv_path)
+    target_df = get_target_frame(raw_df)
+    outer_splits = reconstruct_outer_splits_from_out_dir(out_dir, target_df)
+    if not outer_splits:
+        raise FileNotFoundError(f"No outer split manifests found under {out_dir}/outer_splits")
+    args = _report_backfill_args_from_out_dir(out_dir)
+    return estimate_nested_pipeline_llm_cost(
+        raw_df,
+        target_df,
+        outer_splits,
+        args,
+        honor_resume_skips=False,
+    )
+
+
+def persist_session_and_initial_apriori_estimates(
+    out_dir: str,
+    session_estimate: Dict[str, Any],
+    *,
+    full_pipeline_estimate: Optional[Dict[str, Any]] = None,
+    label: str = "nested outer-training extraction pipeline",
+) -> None:
+    """Write session a-priori plus one-time initial full-pipeline snapshot."""
+    from .api.cost import ensure_initial_apriori_cost_estimate_json, write_apriori_cost_estimate_json
+
+    write_apriori_cost_estimate_json(out_dir, session_estimate, label=label)
+    if full_pipeline_estimate is None:
+        if is_partial_resume_apriori_estimate(session_estimate):
+            return
+        full_pipeline_estimate = session_estimate
+    ensure_initial_apriori_cost_estimate_json(out_dir, full_pipeline_estimate)
 
 
 def main() -> None:
@@ -410,7 +510,25 @@ def main() -> None:
                 f"existing_case_checkpoints_skipped={estimate.get('n_calls_skipped_existing_checkpoints', 0)} "
                 f"planned_report_modes={estimate['planned_report_modes']}"
             )
-            write_apriori_cost_estimate_json(args.out_dir, estimate, label="nested outer-training extraction pipeline")
+            full_estimate: Optional[Dict[str, Any]] = None
+            initial_apriori_path = os.path.join(args.out_dir, APRIORI_INITIAL_FILENAME)
+            if (
+                not os.path.isfile(initial_apriori_path)
+                and is_partial_resume_apriori_estimate(estimate)
+            ):
+                full_estimate = estimate_nested_pipeline_llm_cost(
+                    raw_df,
+                    target_df,
+                    outer_splits,
+                    args,
+                    honor_resume_skips=False,
+                )
+            persist_session_and_initial_apriori_estimates(
+                args.out_dir,
+                estimate,
+                full_pipeline_estimate=full_estimate,
+                label="nested outer-training extraction pipeline",
+            )
             confirm_cost_estimate_or_exit(estimate, assume_yes=args.yes)
 
             preflight_check()

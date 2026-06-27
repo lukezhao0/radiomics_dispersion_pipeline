@@ -53,7 +53,7 @@ Approach 2 high/low AUROC uses classifier probabilities from `nested_outer_metri
 **Approach 2**:
 
 - `nested_outer_metrics_summary.csv` — regression/classification metrics with bootstrap CIs, by `dataset_key`, `representation`, `model_key`, `target_name`
-- `llm_token_cost_report.json`, `llm_cost_estimate_apriori.json`
+- `llm_token_cost_report.json`, `llm_cost_estimate_apriori_initial.json` (preferred), `llm_cost_estimate_apriori.json` (session-only fallback)
 
 **Manual legacy results** (no directory required):
 
@@ -202,7 +202,7 @@ The framework is robust to missing files and metrics; gaps are listed in the HTM
 - **Approach 1 high/low AUROC on old run dirs** — requires a one-time `--results-report-only` backfill (see above) before comparison will include Approach 1 on the AUROC panel.
 - **Legacy manual Approach 1 metrics** — the bundled config supplies accuracy only for old GPT-5; AUROC appears on the accuracy panel unless you add `high_low_auroc_best` to `manual_results`.
 - **Wall-clock runtime** — only estimated when run logs contain parseable session timestamps.
-- **A priori cost** — only when `llm_cost_estimate_apriori.json` exists in the run directory.
+- **A priori cost** — prefers `llm_cost_estimate_apriori_initial.json` (immutable full-pipeline plan). Falls back to `llm_cost_estimate_apriori.json` only when that snapshot is a fresh-run estimate with no resume skips.
 - **Teacher–student / ablation pathways** — compared only if present as `dataset_key` values in `nested_outer_metrics_summary.csv`.
 
 ## Design principles

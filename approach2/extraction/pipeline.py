@@ -562,6 +562,10 @@ def run_pipeline(
         prompt_modes.append(report_mode)
     estimate = summarize_apriori_cost_estimate(prompt_counts, prompt_modes, max_completion_tokens=MAX_TOKENS)
     print_apriori_cost_estimate_report(estimate, label=f"standalone {report_mode} extraction")
+    from ..api.cost import ensure_initial_apriori_cost_estimate_json, write_apriori_cost_estimate_json
+
+    write_apriori_cost_estimate_json(out_dir, estimate, label=f"standalone {report_mode} extraction")
+    ensure_initial_apriori_cost_estimate_json(out_dir, estimate, label=f"standalone {report_mode} extraction (initial)")
     confirm_cost_estimate_or_exit(estimate, assume_yes=assume_yes)
 
     preflight_check()

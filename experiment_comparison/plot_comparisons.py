@@ -95,14 +95,16 @@ def _operational_best_per_run(df: pd.DataFrame, metric: str, higher_is_better: b
     priority = []
     for _, row in sub.iterrows():
         src = str(row.get("source_file", ""))
-        if "llm_token_cost_report.json" in src or "aggregated_from_per_config" in src:
+        if "llm_cost_estimate_apriori_initial.json" in src:
             p = 0
-        elif "llm_cost_estimate_apriori" in src:
+        elif "llm_token_cost_report.json" in src or "aggregated_from_per_config" in src:
             p = 1
+        elif "llm_cost_estimate_apriori.json" in src:
+            p = 2
         elif "token_cost_report.json" in src:
             p = 3
         else:
-            p = 2
+            p = 4
         priority.append(p)
     sub = sub.copy()
     sub["_priority"] = priority

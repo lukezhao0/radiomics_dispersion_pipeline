@@ -14,7 +14,14 @@ python pipeline/approach1.py \
 
 python pipeline/approach1.py \
     --csv-path /Users/lukezhao/projects/onc/data/PROCESSED_TRIMMED_path_cases_MRI_status.csv \
-    --outdir /Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach1_pipeline_062526 \
+    --outdir /Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach1_pipeline_062726 \
+    --model gpt-5 \
+    --reasoning-effort medium
+
+python pipeline/approach1.py \
+    --csv-path /Users/lukezhao/projects/onc/data/PROCESSED_TRIMMED_path_cases_MRI_status.csv \
+    --outdir /Users/lukezhao/projects/onc/sabcs/securegpt_dispersion_approach1_pipeline_062726 \
+    --shotsets shotset_high_0_2_low_101_102 \
     --model gpt-5 \
     --reasoning-effort medium
 

@@ -14,6 +14,9 @@ import pandas as pd
 APPROACH1_APRIORI = "approach1"
 APPROACH2_APRIORI = "approach2"
 
+APRIORI_SESSION_FILENAME = "llm_cost_estimate_apriori.json"
+APRIORI_INITIAL_FILENAME = "llm_cost_estimate_apriori_initial.json"
+
 COST_TOKENS_PLOT = "cost_estimate_vs_actual_tokens.png"
 COST_USD_PLOT = "cost_estimate_vs_actual_usd.png"
 COST_BY_CONFIG_PLOT = "cost_estimate_vs_actual_by_config.png"
@@ -37,6 +40,53 @@ def extract_actual_cumulative(cost_data: Optional[Dict[str, Any]]) -> Dict[str, 
         "estimated_cost_usd": float(source.get("estimated_cost_usd", 0.0) or 0.0),
         "estimated_cache_savings_usd": float(source.get("estimated_cache_savings_usd", 0.0) or 0.0),
     }
+
+
+def is_partial_resume_apriori_estimate(apriori: Optional[Dict[str, Any]]) -> bool:
+    """True when an Approach 2 a-priori block covers remaining resume work only."""
+    if not apriori or not isinstance(apriori, dict):
+        return False
+    return int(apriori.get("n_completed_splits_skipped_in_estimate", 0) or 0) > 0 or int(
+        apriori.get("n_calls_skipped_existing_checkpoints", 0) or 0
+    ) > 0
+
+
+def _read_json_if_exists(path: str) -> Dict[str, Any]:
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        import json
+
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def load_approach2_apriori_for_comparison(out_dir: str) -> Dict[str, Any]:
+    """Load the immutable initial full-pipeline a-priori snapshot for report comparisons."""
+    initial = _read_json_if_exists(os.path.join(out_dir, APRIORI_INITIAL_FILENAME))
+    if initial:
+        return initial
+    session = _read_json_if_exists(os.path.join(out_dir, APRIORI_SESSION_FILENAME))
+    if session and not is_partial_resume_apriori_estimate(session):
+        return session
+    return {}
+
+
+def backfill_approach2_initial_apriori_if_needed(out_dir: str, csv_path: Optional[str] = None) -> Optional[str]:
+    """Create the initial a-priori snapshot from saved manifests when missing."""
+    initial_path = os.path.join(out_dir, APRIORI_INITIAL_FILENAME)
+    if os.path.isfile(initial_path):
+        return initial_path
+    if not csv_path:
+        return None
+    from approach2.api.cost import ensure_initial_apriori_cost_estimate_json
+    from approach2.cli import estimate_full_pipeline_apriori_for_out_dir
+
+    estimate = estimate_full_pipeline_apriori_for_out_dir(out_dir, csv_path)
+    return ensure_initial_apriori_cost_estimate_json(out_dir, estimate)
 
 
 def normalize_apriori_estimate(

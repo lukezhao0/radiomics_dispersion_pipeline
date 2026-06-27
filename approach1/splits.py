@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
@@ -43,11 +43,37 @@ def validate_training_modality_availability(training_cases: List[Tuple[int, Case
         )
 
 
-def build_run_configs(df: pd.DataFrame, root_out_dir: str) -> List[RunConfig]:
+def resolve_shot_sets(shotset_names: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
+    """Return configured shot sets, optionally filtered by canonical name."""
+    if not shotset_names:
+        return list(SHOT_SETS)
+
+    by_name = {shotset["name"]: shotset for shotset in SHOT_SETS}
+    unknown = [name for name in shotset_names if name not in by_name]
+    if unknown:
+        valid = ", ".join(by_name)
+        raise ValueError(f"Unknown shot set(s): {unknown}. Valid choices: {valid}")
+
+    selected: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for name in shotset_names:
+        if name in seen:
+            continue
+        seen.add(name)
+        selected.append(by_name[name])
+    return selected
+
+
+def build_run_configs(
+    df: pd.DataFrame,
+    root_out_dir: str,
+    shot_sets: Optional[Sequence[Dict[str, Any]]] = None,
+) -> List[RunConfig]:
     run_configs: List[RunConfig] = []
     all_idxs = list(range(len(df)))
+    selected_shot_sets = list(shot_sets) if shot_sets is not None else list(SHOT_SETS)
 
-    for shotset in SHOT_SETS:
+    for shotset in selected_shot_sets:
         validate_shot_rows(df, shotset)
         high_rows = list(shotset["high_rows"])
         low_rows = list(shotset["low_rows"])

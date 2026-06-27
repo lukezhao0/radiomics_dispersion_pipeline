@@ -420,7 +420,14 @@ def extract_from_discovered(
       )
     elif kind == "approach2_metrics_summary":
       all_metrics.extend(extract_approach2_metrics_csv(run, path, aliases))
-    elif kind in {"approach1_cost_aggregate", "approach1_cost_per_config", "approach2_cost_actual", "approach2_cost_apriori", "cost_json"}:
+    elif kind in {
+        "approach1_cost_aggregate",
+        "approach1_cost_per_config",
+        "approach2_cost_actual",
+        "approach2_cost_apriori",
+        "approach2_cost_apriori_initial",
+        "cost_json",
+    }:
       all_metrics.extend(extract_cost_json(run, path, aliases))
     elif kind in {"approach1_run_log", "approach2_run_log", "run_log"}:
       all_metrics.extend(extract_run_log(run, path, aliases))

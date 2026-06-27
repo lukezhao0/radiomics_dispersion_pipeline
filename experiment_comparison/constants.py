@@ -116,6 +116,7 @@ DISCOVERY_PATTERNS = {
     "approach1_run_log": ["run.log"],
     "approach2_metrics_summary": ["nested_outer_metrics_summary.csv"],
     "approach2_cost_actual": ["llm_token_cost_report.json"],
+    "approach2_cost_apriori_initial": ["llm_cost_estimate_apriori_initial.json"],
     "approach2_cost_apriori": ["llm_cost_estimate_apriori.json"],
     "approach2_run_log": ["run_log", "run.log"],
 }

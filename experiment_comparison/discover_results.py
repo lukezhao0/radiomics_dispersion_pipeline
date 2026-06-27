@@ -112,6 +112,17 @@ def discover_all_runs(runs: List[RunConfig]) -> List[DiscoveredFile]:
   all_files: List[DiscoveredFile] = []
   for run in runs:
     all_files.extend(discover_run_files(run))
+  runs_with_initial = {
+    f.run_id
+    for f in all_files
+    if f.artifact_kind == "approach2_cost_apriori_initial"
+  }
+  if runs_with_initial:
+    all_files = [
+      f
+      for f in all_files
+      if not (f.artifact_kind == "approach2_cost_apriori" and f.run_id in runs_with_initial)
+    ]
   return all_files
 
 

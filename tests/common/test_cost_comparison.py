@@ -11,10 +11,13 @@ import pytest
 from common.cost_comparison import (
     APPROACH1_APRIORI,
     APPROACH2_APRIORI,
+    APRIORI_INITIAL_FILENAME,
     aggregate_apriori_from_run_configs,
     build_cost_comparison_summary_df,
     extract_actual_cumulative,
     generate_cost_comparison_plots,
+    is_partial_resume_apriori_estimate,
+    load_approach2_apriori_for_comparison,
     normalize_apriori_estimate,
 )
 
@@ -112,3 +115,36 @@ def test_generate_cost_comparison_plots(tmp_path) -> None:
     assert len(paths) >= 2
     for path in paths:
         assert os.path.isfile(path)
+
+
+def test_is_partial_resume_apriori_estimate() -> None:
+    assert not is_partial_resume_apriori_estimate({"n_calls": 10})
+    assert is_partial_resume_apriori_estimate({"n_calls": 10, "n_completed_splits_skipped_in_estimate": 1})
+    assert is_partial_resume_apriori_estimate({"n_calls": 10, "n_calls_skipped_existing_checkpoints": 3})
+
+
+def test_load_approach2_apriori_prefers_initial(tmp_path) -> None:
+    initial = {
+        "n_calls": 756,
+        "estimated_prompt_tokens": 100,
+        "estimated_completion_cap_tokens": 1000,
+        "no_cache_estimated_cost_usd": 4.0,
+        "cache_aware_estimated_cost_usd": 3.5,
+        "cache_aware_estimated_cached_tokens": 10,
+        "cache_aware_estimated_cache_savings_usd": 0.5,
+    }
+    session = {
+        "n_calls": 282,
+        "estimated_prompt_tokens": 50,
+        "estimated_completion_cap_tokens": 500,
+        "no_cache_estimated_cost_usd": 1.0,
+        "cache_aware_estimated_cost_usd": 0.8,
+        "cache_aware_estimated_cached_tokens": 5,
+        "cache_aware_estimated_cache_savings_usd": 0.2,
+        "n_completed_splits_skipped_in_estimate": 2,
+    }
+    (tmp_path / APRIORI_INITIAL_FILENAME).write_text(json.dumps(initial), encoding="utf-8")
+    (tmp_path / "llm_cost_estimate_apriori.json").write_text(json.dumps(session), encoding="utf-8")
+    loaded = load_approach2_apriori_for_comparison(str(tmp_path))
+    assert loaded["n_calls"] == 756
+    assert normalize_apriori_estimate(loaded, flavor=APPROACH2_APRIORI)["cache_aware_cost_usd"] == pytest.approx(3.5)

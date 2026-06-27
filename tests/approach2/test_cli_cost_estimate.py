@@ -45,6 +45,29 @@ def _estimate_args(tmp_path, **kwargs):
     return SimpleNamespace(**defaults)
 
 
+def test_estimate_nested_pipeline_llm_cost_honor_resume_skips_false_counts_all(tmp_path):
+    raw_df = _synthetic_cases_df()
+    target_df = get_target_frame(raw_df)
+    outer_splits = build_outer_splits(
+        y_binary=target_df["dispersion_true_high_low"].astype(int).values,
+        scheme="stratified_kfold",
+        random_seed=17,
+        n_repeats=1,
+        test_frac=0.2,
+        n_folds=3,
+    )
+    os.environ.setdefault("SANDBOX_API_KEY", "test-key")
+    configure_llm("gpt-5-nano")
+    args = _estimate_args(tmp_path)
+    resumed = estimate_nested_pipeline_llm_cost(raw_df, target_df, outer_splits, args)
+    full = estimate_nested_pipeline_llm_cost(
+        raw_df, target_df, outer_splits, args, honor_resume_skips=False
+    )
+    assert full["n_calls"] >= resumed["n_calls"]
+    assert full["n_completed_splits_skipped_in_estimate"] == 0
+    assert full.get("n_calls_skipped_existing_checkpoints", 0) == 0
+
+
 def test_estimate_nested_pipeline_llm_cost_smoke(tmp_path):
     raw_df = _synthetic_cases_df()
     target_df = get_target_frame(raw_df)

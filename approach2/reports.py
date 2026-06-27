@@ -108,9 +108,11 @@ from approach2.text_utils import (
 from approach2.eval_data import _mri_missing_row_indices, _raw_df_with_row_index
 from common.cost_comparison import (
     APPROACH2_APRIORI,
+    backfill_approach2_initial_apriori_if_needed,
     build_cost_comparison_summary_df,
     extract_actual_cumulative,
     generate_cost_comparison_plots,
+    load_approach2_apriori_for_comparison,
     normalize_apriori_estimate,
 )
 from approach2.evaluation.plots import (
@@ -313,14 +315,12 @@ def _load_outer_split_summaries(out_dir: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _load_run_metadata(out_dir: str) -> Dict[str, Any]:
+def _load_run_metadata(out_dir: str, *, csv_path: Optional[str] = None) -> Dict[str, Any]:
     meta: Dict[str, Any] = {}
-    for key, fname in [
-        ("cost_apriori", "llm_cost_estimate_apriori.json"),
-        ("cost_post_run", "llm_token_cost_report.json"),
-        ("cohort_availability", "cohort_report_availability_summary.json"),
-    ]:
-        meta[key] = _read_json_if_exists(os.path.join(out_dir, fname))
+    backfill_approach2_initial_apriori_if_needed(out_dir, csv_path=csv_path)
+    meta["cost_apriori"] = load_approach2_apriori_for_comparison(out_dir)
+    meta["cost_post_run"] = _read_json_if_exists(os.path.join(out_dir, "llm_token_cost_report.json"))
+    meta["cohort_availability"] = _read_json_if_exists(os.path.join(out_dir, "cohort_report_availability_summary.json"))
     mri_missing_path = os.path.join(out_dir, "mri_missing_case_summary.csv")
     meta["mri_missing_df"] = _safe_read_csv_if_exists(mri_missing_path)
     summary_path = os.path.join(out_dir, "nested_resampling_summary.txt")
@@ -352,8 +352,9 @@ def _build_cost_comparison_report_parts(
 
     md_lines = ["## Cost estimate vs actual\n"]
     md_lines.append(
-        "A-priori estimates use rendered extraction prompts and the configured completion-token cap. "
-        "Post-run actuals come from cumulative API usage metadata.\n"
+        "A-priori estimates use the initial full-pipeline plan (all scheduled extraction calls, "
+        "completion-token cap per call). Post-run actuals are cumulative API billing metadata "
+        "across all resume sessions.\n"
     )
     md_lines.append(_df_to_markdown(comparison_df, max_rows=20))
     md_lines.append("\n")
@@ -363,11 +364,11 @@ def _build_cost_comparison_report_parts(
 
     html_parts: List[str] = [
         html_paragraph(
-            "Before LLM extraction calls, the pipeline estimates token usage and USD cost from the exact "
-            "prompts that will be sent plus the configured max completion tokens per call. After the run, "
-            "cumulative usage is taken from API billing metadata. Completion tokens in the estimate are an "
-            "upper bound; actual completion is typically lower, so actual cost often falls below the "
-            "cache-aware estimate."
+            "Before any LLM extraction calls, the pipeline records an initial full-pipeline a-priori "
+            "estimate from all scheduled extraction prompts and the configured max completion tokens "
+            "per call. After the run completes, cumulative usage is taken from API billing metadata "
+            "(resume-stable). Completion tokens in the estimate are an upper bound; actual completion "
+            "is typically lower, so actual cost often falls below the cache-aware estimate."
         ),
         df_to_html_table(comparison_df, max_rows=20, float_digits=4),
     ]
@@ -1410,7 +1411,7 @@ def generate_all_reports(
     permutation_df = pd.read_csv(os.path.join(out_dir, "relapse_permutation_tests.csv")) if os.path.exists(os.path.join(out_dir, "relapse_permutation_tests.csv")) else pd.DataFrame()
     path_mri_subset_metrics_df = pd.read_csv(os.path.join(out_dir, "pathology_only_mri_complete_subset_metrics.csv")) if os.path.exists(os.path.join(out_dir, "pathology_only_mri_complete_subset_metrics.csv")) else pd.DataFrame()
     fold_results_all = pd.read_csv(os.path.join(out_dir, "nested_outer_fold_metrics_all.csv")) if os.path.exists(os.path.join(out_dir, "nested_outer_fold_metrics_all.csv")) else pd.DataFrame()
-    run_metadata = _load_run_metadata(out_dir)
+    run_metadata = _load_run_metadata(out_dir, csv_path=csv_path)
 
     interp_md, interp_html_path = generate_interpretability_report(
         out_dir=out_dir,

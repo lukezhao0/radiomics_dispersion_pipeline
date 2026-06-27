@@ -88,25 +88,40 @@ def test_generate_reports_minimal_synthetic(tmp_path):
     }])
     metrics.to_csv(out_dir / "nested_outer_metrics_summary.csv", index=False)
     preds.to_csv(out_dir / "nested_outer_predictions_case_deduplicated.csv", index=False)
+    (out_dir / "llm_cost_estimate_apriori_initial.json").write_text(json.dumps({
+        "n_calls": 756,
+        "estimated_prompt_tokens": 2965776,
+        "estimated_completion_cap_tokens": 12096000,
+        "no_cache_estimated_cost_usd": 4.9866888,
+        "cache_aware_estimated_cost_usd": 4.92920384,
+        "cache_aware_estimated_cached_tokens": 1437124,
+        "cache_aware_estimated_cache_savings_usd": 0.05748496,
+        "n_completed_splits_skipped_in_estimate": 0,
+        "n_calls_skipped_existing_checkpoints": 0,
+        "estimate_kind": "full_pipeline_initial",
+    }), encoding="utf-8")
     (out_dir / "llm_cost_estimate_apriori.json").write_text(json.dumps({
-        "n_calls": 10,
-        "estimated_prompt_tokens": 50000,
-        "estimated_completion_cap_tokens": 160000,
-        "no_cache_estimated_cost_usd": 1.0,
-        "cache_aware_estimated_cost_usd": 0.8,
-        "cache_aware_estimated_cached_tokens": 10000,
-        "cache_aware_estimated_cache_savings_usd": 0.05,
+        "n_calls": 282,
+        "estimated_prompt_tokens": 1101897,
+        "estimated_completion_cap_tokens": 4512000,
+        "no_cache_estimated_cost_usd": 1.85989485,
+        "cache_aware_estimated_cost_usd": 1.83854765,
+        "cache_aware_estimated_cached_tokens": 533680,
+        "cache_aware_estimated_cache_savings_usd": 0.0213472,
+        "n_completed_splits_skipped_in_estimate": 2,
+        "n_calls_skipped_existing_checkpoints": 169,
+        "estimate_kind": "session_remaining_work",
     }), encoding="utf-8")
     (out_dir / "llm_token_cost_report.json").write_text(json.dumps({
-        "calls": 10,
-        "prompt_tokens": 48000,
-        "completion_tokens": 12000,
-        "total_tokens": 60000,
-        "estimated_cost_usd": 0.35,
-        "cached_tokens": 9000,
-        "uncached_prompt_tokens": 39000,
-        "reasoning_tokens": 0,
-        "estimated_cache_savings_usd": 0.04,
+        "calls": 755,
+        "prompt_tokens": 2969665,
+        "completion_tokens": 8040058,
+        "total_tokens": 11009723,
+        "estimated_cost_usd": 3.31048533,
+        "cached_tokens": 1350528,
+        "uncached_prompt_tokens": 1619137,
+        "reasoning_tokens": 6475424,
+        "estimated_cache_savings_usd": 0.05402112,
         "cost_type": "post_run_actual",
     }), encoding="utf-8")
 
@@ -114,6 +129,8 @@ def test_generate_reports_minimal_synthetic(tmp_path):
     assert Path(paths["results_html"]).is_file()
     results_html = (out_dir / "automated_results_report.html").read_text(encoding="utf-8")
     assert "Cost estimate vs actual" in results_html
+    assert "756.0" in results_html or "756.0000" in results_html
+    assert "282.0" not in results_html
     assert "cost_estimate_vs_actual_usd.png" in results_html
     assert Path(paths["interpretability_html"]).is_file()
     assert Path(paths["missed_case_html"]).is_file()

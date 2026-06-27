@@ -16,6 +16,7 @@ from ..io_atomic import atomic_write_json
 from ..prompts.builder import build_user_prompt
 from ..prompts.extraction import SYSTEM_MSG
 from ..text_utils import is_affirmative_response, is_negative_response
+from common.cost_comparison import is_partial_resume_apriori_estimate
 
 # -----------------------------
 # Token / cost tracking helpers
@@ -270,18 +271,20 @@ def write_cost_tracker_json(
     return path
 
 
-def write_apriori_cost_estimate_json(
-    out_dir: str,
+APRIORI_SESSION_FILENAME = "llm_cost_estimate_apriori.json"
+APRIORI_INITIAL_FILENAME = "llm_cost_estimate_apriori_initial.json"
+
+
+def _apriori_payload(
     estimate: Dict[str, Any],
-    label: str = "planned pipeline",
-    filename: str = "llm_cost_estimate_apriori.json",
-) -> str:
-    """Persist a-priori cost estimate separately from post-run actuals."""
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, filename)
+    *,
+    label: str,
+    estimate_kind: str,
+) -> Dict[str, Any]:
     payload = dict(estimate)
     payload.update({
         "cost_type": "apriori_estimate",
+        "estimate_kind": estimate_kind,
         "estimate_scope": label,
         "assumptions": (
             "Uses rendered prompts for scheduled cases, MAX_TOKENS completion cap per call, "
@@ -289,11 +292,64 @@ def write_apriori_cost_estimate_json(
         ),
         "written_at": datetime.now().isoformat(timespec="seconds"),
     })
+    return payload
+
+
+def write_apriori_cost_estimate_json(
+    out_dir: str,
+    estimate: Dict[str, Any],
+    label: str = "planned pipeline",
+    filename: str = APRIORI_SESSION_FILENAME,
+) -> str:
+    """Persist the current-session a-priori estimate (remaining work on resume)."""
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, filename)
+    estimate_kind = (
+        "session_remaining_work"
+        if is_partial_resume_apriori_estimate(estimate)
+        else "full_pipeline_session"
+    )
+    payload = _apriori_payload(estimate, label=label, estimate_kind=estimate_kind)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
         f.write("\n")
     print(f"[SAVE] Wrote a-priori LLM cost estimate: {path}")
     return path
+
+
+def write_initial_apriori_cost_estimate_json(
+    out_dir: str,
+    estimate: Dict[str, Any],
+    label: str = "nested outer-training extraction pipeline (initial full plan)",
+    filename: str = APRIORI_INITIAL_FILENAME,
+    *,
+    overwrite: bool = False,
+) -> Optional[str]:
+    """Persist the immutable full-pipeline a-priori snapshot used in final reports."""
+    if is_partial_resume_apriori_estimate(estimate):
+        raise ValueError("Initial a-priori snapshot must cover the full planned pipeline.")
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, filename)
+    if os.path.isfile(path) and not overwrite:
+        return path
+    payload = _apriori_payload(estimate, label=label, estimate_kind="full_pipeline_initial")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+        f.write("\n")
+    print(f"[SAVE] Wrote initial full-pipeline a-priori estimate: {path}")
+    return path
+
+
+def ensure_initial_apriori_cost_estimate_json(
+    out_dir: str,
+    full_pipeline_estimate: Dict[str, Any],
+    label: str = "nested outer-training extraction pipeline (initial full plan)",
+) -> Optional[str]:
+    """Write the initial full-pipeline a-priori file once (never overwrite on resume)."""
+    path = os.path.join(out_dir, APRIORI_INITIAL_FILENAME)
+    if os.path.isfile(path):
+        return path
+    return write_initial_apriori_cost_estimate_json(out_dir, full_pipeline_estimate, label=label)
 
 
 def _rough_token_count(text: str) -> int:

@@ -23,7 +23,7 @@ from .data import load_cases
 from .logging_setup import Tee
 from .evaluation.results_report import build_approach1_results_html
 from .orchestration import refresh_evaluations_from_predictions, run_one_config, save_aggregate_summary
-from .splits import build_run_configs
+from .splits import build_run_configs, resolve_shot_sets
 from common.llm_models import DEFAULT_MODEL, normalize_model_name
 from common.reasoning_effort import DEFAULT_REASONING_EFFORT, REASONING_EFFORT_CHOICES
 
@@ -75,6 +75,17 @@ def main() -> None:
         action="store_true",
         help="Re-evaluate metrics/plots from saved predictions, rebuild aggregate summary and HTML report (no API calls).",
     )
+    parser.add_argument(
+        "--shotsets",
+        nargs="+",
+        default=None,
+        metavar="SHOTSET",
+        choices=[shotset["name"] for shotset in config.SHOT_SETS],
+        help=(
+            "Run only the listed shot set(s) (default: all). "
+            f"Choices: {', '.join(shotset['name'] for shotset in config.SHOT_SETS)}"
+        ),
+    )
     args = parser.parse_args()
     selected_model = normalize_model_name(args.deployment or args.model)
 
@@ -110,11 +121,16 @@ def main() -> None:
             print(f"[START] RESUME={args.resume}")
             print(f"[START] SKIP_COMPLETED_CONFIGS={args.skip_completed_configs}")
             print(f"[START] FORCE_RERUN_CASES={args.force_rerun_cases}")
+            selected_shot_sets = resolve_shot_sets(args.shotsets)
+            print(
+                "[START] SHOTSETS="
+                + (", ".join(shotset["name"] for shotset in selected_shot_sets) if args.shotsets else "all")
+            )
             print("=" * 80)
 
             configure_api(args.env_path, selected_model, args.api_version, reasoning_effort=args.reasoning_effort)
             df = load_cases(args.csv_path)
-            run_configs = build_run_configs(df, args.outdir)
+            run_configs = build_run_configs(df, args.outdir, shot_sets=selected_shot_sets)
 
             confirm_before_full_run(
                 run_configs,

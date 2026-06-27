@@ -143,7 +143,17 @@ python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1 -
 python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1 -y
 ```
 
-Common flags: `--resume` / `--no-resume`, `--skip-completed-configs`, `--force-rerun-cases`, `--skip-preflight`, `--results-report-only`, `--model`, `--deployment` (alias for `--model`).
+Common flags: `--resume` / `--no-resume`, `--skip-completed-configs`, `--force-rerun-cases`, `--skip-preflight`, `--results-report-only`, `--shotsets`, `--model`, `--deployment` (alias for `--model`).
+
+Run a single shot set (high exemplars at rows 0 and 2, low exemplars at rows 101 and 102):
+
+```bash
+python approach1.py \
+  --csv-path /path/to/cases.csv \
+  --outdir ./outputs/approach1 \
+  --shotsets shotset_high_0_2_low_101_102 \
+  -y
+```
 
 Regenerate metrics, aggregate summary, and HTML review page from saved predictions (no API calls):
 

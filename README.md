@@ -264,7 +264,7 @@ For Approach 1 runs created before high/low AUROC was added, backfill first with
 
 ### Combined-modality metrics audit (offline)
 
-Recompute and document **fused MRI + pathology** metrics for Approach 1 and Approach 2 from saved predictions (no API calls). Produces bootstrap 95% CIs, comparability notes, and a conference-ready results paragraph.
+Recompute and document **fused MRI + pathology** metrics for Approach 1 and Approach 2 from saved predictions (no API calls). Produces bootstrap 95% CIs and comparability notes.
 
 ```bash
 MPLCONFIGDIR=/tmp/mplcache .venv/bin/python pipeline/metrics_audit/compute_unified_metrics.py \

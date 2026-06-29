@@ -95,10 +95,6 @@ Values are point estimates with 95% bootstrap CIs in parentheses. Recomputed fro
 
 \*Approach 1 relapse AUROC ranks the binary LLM label, not a continuous risk score.
 
-### Draft results paragraph (conference abstract)
-
-> In internal validation on fused MRI and pathology text, the few-shot LLM approach (N = 82 MRI-complete held-out cases) achieved moderate-to-good performance for continuous tumor dispersion (Spearman ρ = 0.74 [95% CI 0.60–0.84]; MAE = 51.2 [39.7–62.8]) and binary high/low dispersion (AUROC = 0.87 [0.78–0.94]; AUPRC = 0.84 [0.71–0.93]; F1 = 0.73), but only modest relapse discrimination (AUROC = 0.67 [0.53–0.81]; AUPRC = 0.26 [0.13–0.45]; F1 = 0.42; accuracy = 73%). After LLM-based discovery of 1,666 stable dispersion-related textual features from fused radiology–pathology reports, a supervised pipeline using nested cross-validation on a partially overlapping combined-modality subset (N = 60) achieved moderate continuous dispersion prediction (Spearman ρ = 0.49 [0.25–0.68]; MAE = 72.8 [55.3–90.7]) and high/low classification (AUROC = 0.75 [0.62–0.87]; AUPRC = 0.75 [0.60–0.88]; F1 = 0.64), with numerically stronger relapse discrimination (AUROC = 0.90 [0.80–0.97]; AUPRC = 0.65 [0.37–0.88]; F1 = 0.55). Performance was strongest for dispersion tasks under the few-shot LLM approach and for relapse under the feature-based model, though relapse findings should be interpreted cautiously given the small event count (≈10 relapses in the A2 subset), wide confidence intervals, nested model selection, and non-identical evaluation cohorts.
-
 ## Comparability between approaches
 
 **Verdict: approximately comparable, not directly comparable.**

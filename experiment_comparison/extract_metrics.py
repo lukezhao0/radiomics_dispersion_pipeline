@@ -166,6 +166,8 @@ def extract_approach1_summary_csv(run: RunConfig, path: str, aliases: Dict[str, 
       notes = ""
       if col in ("dispersion_high_low_auroc", "dispersion_high_low_auprc"):
         notes = "score_source=dispersion_score_pred"
+      if col in ("relapse_auroc", "relapse_auprc"):
+        notes = "score_source=relapse_pred"
       m = _emit(
         run=run, metric=col, value=row[col], raw_metric=col,
         target=target, task_type=task_type, modality=modality, shotset=shotset,
@@ -210,6 +212,8 @@ def extract_approach1_eval_json(
       note = ""
       if section_key == "dispersion_high_low" and k in ("auroc", "auprc"):
         note = "score_source=dispersion_score_pred"
+      if section_key == "relapse_label" and k in ("auroc", "auprc"):
+        note = "score_source=relapse_pred"
       m = _emit(
         run=run, metric=k, value=v, raw_metric=f"{section_key}.{k}",
         target=target, task_type=task_type, modality=modality, shotset=shotset,

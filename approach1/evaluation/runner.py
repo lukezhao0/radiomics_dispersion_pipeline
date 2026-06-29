@@ -9,6 +9,8 @@ from typing import Any, Dict
 import pandas as pd
 
 from ..io_atomic import json_safe
+from ..config import DEFAULT_BOOTSTRAP_N, DEFAULT_BOOTSTRAP_SEED
+from .bootstrap import compute_and_save_bootstrap_cis
 from .evidence import evidence_attribution_report
 from .metrics import (
     compare_relapse_predictors,
@@ -26,6 +28,7 @@ from .plots import (
     plot_needle_retrieval_rates,
     plot_pred_dispersion_by_relapse,
     plot_relapse_predictor_comparison,
+    plot_relapse_roc_pr,
     plot_top_evidence_features,
 )
 
@@ -45,8 +48,9 @@ def explanation_text() -> str:
         "- AUROC and AUPRC rank cases by predicted dispersion score (dispersion_score_pred).\n"
         "- Confusion matrix rows are true labels [0,1] and columns are predicted labels [0,1].\n"
         "\n"
-        "Relapse (classification; label-only)\n"
+        "Relapse (classification)\n"
         "- Accuracy and F1 compare relapse_pred against relapse_true.\n"
+        "- AUROC and AUPRC rank cases by relapse_pred (the LLM binary relapse label).\n"
         "\n"
         "Relapse predictor comparison\n"
         "- A) LLM relapse_pred is a binary label.\n"
@@ -63,7 +67,14 @@ def explanation_text() -> str:
     )
 
 
-def evaluate_and_plot(pred_df: pd.DataFrame, out_dir: str, title_suffix: str) -> Dict[str, Any]:
+def evaluate_and_plot(
+    pred_df: pd.DataFrame,
+    out_dir: str,
+    title_suffix: str,
+    *,
+    n_bootstrap: int | None = None,
+    bootstrap_seed: int | None = None,
+) -> Dict[str, Any]:
     os.makedirs(out_dir, exist_ok=True)
     df = prepare_predictions_for_eval(pred_df)
 
@@ -75,6 +86,8 @@ def evaluate_and_plot(pred_df: pd.DataFrame, out_dir: str, title_suffix: str) ->
     resid_png = os.path.join(out_dir, "dispersion_residuals_hist.png")
     dhl_cm_png = os.path.join(out_dir, "dispersion_high_low_confusion_matrix.png")
     relapse_cm_png = os.path.join(out_dir, "relapse_confusion_matrix.png")
+    relapse_roc_png = os.path.join(out_dir, "relapse_roc_curve.png")
+    relapse_pr_png = os.path.join(out_dir, "relapse_pr_curve.png")
     pred_disp_by_relapse_png = os.path.join(out_dir, "predicted_dispersion_by_true_relapse.png")
     relapse_predictor_compare_png = os.path.join(out_dir, "relapse_predictor_comparison.png")
     needle_rates_png = os.path.join(out_dir, "needle_retrieval_rates.png")
@@ -134,6 +147,7 @@ def evaluate_and_plot(pred_df: pd.DataFrame, out_dir: str, title_suffix: str) ->
             relapse_cm_png,
             f"Relapse Confusion Matrix ({title_suffix})",
         )
+    plot_relapse_roc_pr(df, relapse_roc_png, relapse_pr_png, title_suffix)
     plot_pred_dispersion_by_relapse(df, pred_disp_by_relapse_png, title_suffix)
     plot_relapse_predictor_comparison(rel_comp_metrics, relapse_predictor_compare_png, title_suffix)
     plot_needle_retrieval_rates(df, needle_rates_png, title_suffix)
@@ -159,5 +173,16 @@ def evaluate_and_plot(pred_df: pd.DataFrame, out_dir: str, title_suffix: str) ->
     }
     with open(metrics_json, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
+
+    bootstrap_n = DEFAULT_BOOTSTRAP_N if n_bootstrap is None else int(n_bootstrap)
+    bootstrap_random_seed = DEFAULT_BOOTSTRAP_SEED if bootstrap_seed is None else int(bootstrap_seed)
+    bootstrap_summary = compute_and_save_bootstrap_cis(
+        pred_df,
+        out_dir,
+        n_bootstrap=bootstrap_n,
+        random_seed=bootstrap_random_seed,
+    )
+    summary["bootstrap_metrics"] = bootstrap_summary
+
     print(f"[EVAL] Wrote metrics + plots to: {out_dir}")
     return summary

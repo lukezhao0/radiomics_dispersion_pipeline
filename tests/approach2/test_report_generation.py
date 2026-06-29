@@ -136,6 +136,99 @@ def test_generate_reports_minimal_synthetic(tmp_path):
     assert Path(paths["missed_case_html"]).is_file()
 
 
+def test_combined_approach_leaderboard_in_results_report(tmp_path):
+    from approach2.reports import _build_combined_approach_best_models_parts, generate_all_reports
+
+    metrics_rows = [
+        {
+            "target_name": "dispersion_score",
+            "dataset_key": "combined",
+            "representation": "group_count",
+            "model_key": "pls_regression",
+            "task_type": "regression",
+            "n": 60,
+            "mae": 72.8,
+            "spearman_rho": 0.493,
+            "r2": 0.195,
+        },
+        {
+            "target_name": "dispersion_score",
+            "dataset_key": "combined",
+            "representation": "group_binary",
+            "model_key": "ridge_regression",
+            "task_type": "regression",
+            "n": 60,
+            "mae": 83.3,
+            "spearman_rho": 0.473,
+            "r2": 0.116,
+        },
+        {
+            "target_name": "dispersion_high_low",
+            "dataset_key": "combined",
+            "representation": "group_count",
+            "model_key": "ridge_logistic",
+            "task_type": "classification",
+            "n": 60,
+            "auroc": 0.737,
+            "auprc": 0.760,
+            "f1": 0.644,
+            "brier": 0.206,
+        },
+        {
+            "target_name": "relapse_status",
+            "dataset_key": "combined",
+            "representation": "group_count",
+            "model_key": "ridge_logistic",
+            "task_type": "classification",
+            "n": 60,
+            "auroc": 0.898,
+            "auprc": 0.651,
+            "f1": 0.552,
+            "brier": 0.201,
+        },
+        {
+            "target_name": "dispersion_score",
+            "dataset_key": "mri",
+            "representation": "group_count",
+            "model_key": "pls_regression",
+            "task_type": "regression",
+            "n": 60,
+            "mae": 80.0,
+            "spearman_rho": 0.40,
+            "r2": 0.1,
+        },
+    ]
+    metrics = pd.DataFrame(metrics_rows)
+    preds = pd.DataFrame([{
+        "case_id": "c1",
+        "row_index": 0,
+        "split_id": "outer_split_001",
+        "dataset_key": "combined",
+        "representation": "group_count",
+        "model_key": "pls_regression",
+        "task_type": "regression",
+        "target_name": "dispersion_score",
+        "y_true": 50.0,
+        "y_pred_value": 48.0,
+    }])
+    out_dir = tmp_path
+    metrics.to_csv(out_dir / "nested_outer_metrics_summary.csv", index=False)
+    preds.to_csv(out_dir / "nested_outer_predictions_case_deduplicated.csv", index=False)
+
+    md_lines, html_parts, tables = _build_combined_approach_best_models_parts(metrics)
+    assert len(tables) == 3
+    assert tables[0].iloc[0]["model_key"] == "pls_regression"
+    assert tables[2].iloc[0]["model_key"] == "ridge_logistic"
+    assert any("Combined MRI + pathology best models" in line for line in md_lines)
+
+    paths = generate_all_reports(str(out_dir), force=True)
+    results_html = (out_dir / "automated_results_report.html").read_text(encoding="utf-8")
+    assert "Combined MRI + pathology best models" in results_html
+    assert "Dispersion score regression (Spearman" in results_html
+    assert "pls_regression" in results_html
+    assert Path(paths["results_html"]).is_file()
+
+
 def test_flowchart_png_exists():
     png = PIPELINE_ROOT / "docs" / "approach2_pipeline_flowchart.png"
     assert png.is_file()

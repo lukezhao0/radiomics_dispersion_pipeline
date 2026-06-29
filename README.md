@@ -143,7 +143,7 @@ python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1 -
 python approach1.py --csv-path /path/to/cases.csv --outdir ./outputs/approach1 -y
 ```
 
-Common flags: `--resume` / `--no-resume`, `--skip-completed-configs`, `--force-rerun-cases`, `--skip-preflight`, `--results-report-only`, `--shotsets`, `--model`, `--deployment` (alias for `--model`).
+Common flags: `--resume` / `--no-resume`, `--skip-completed-configs`, `--force-rerun-cases`, `--skip-preflight`, `--results-report-only`, `--shotsets`, `--model`, `--deployment` (alias for `--model`), `--bootstrap-n`, `--bootstrap-seed`.
 
 Run a single shot set (high exemplars at rows 0 and 2, low exemplars at rows 101 and 102):
 
@@ -161,7 +161,38 @@ Regenerate metrics, aggregate summary, and HTML review page from saved predictio
 python approach1.py --results-report-only --outdir ./outputs/approach1
 ```
 
-This re-evaluates each completed shotset/modality config from `predictions_testing_cases.csv`, refreshes `evaluation_metrics_summary.json` and `all_tiers_metrics_summary.csv` (including high/low AUROC/AUPRC), then rebuilds `approach1_results_report.html`. Use after pipeline metric changes or before cross-run comparison.
+This re-evaluates each completed shotset/modality config from `predictions_testing_cases.csv`, refreshes `evaluation_metrics_summary.json`, **`bootstrap_metric_cis.csv`** / **`bootstrap_metric_cis.json`**, and `all_tiers_metrics_summary.csv` (including high/low AUROC/AUPRC), then rebuilds `approach1_results_report.html`. Use after pipeline metric changes or before cross-run comparison.
+
+#### Approach 1 bootstrap confidence intervals (no API re-run)
+
+After each config run (or via `--results-report-only`), Approach 1 computes **case-level percentile bootstrap 95% CIs** from `predictions_testing_cases.csv` (default: 1,000 replicates, seed 42). No LLM/API calls are required.
+
+**Metrics reported** (per config directory):
+
+| Task | Metrics |
+|------|---------|
+| Continuous dispersion | Spearman rho, MAE |
+| High/low dispersion | AUROC, AUPRC (from `dispersion_score_pred`), sensitivity, specificity, F1 (from `dispersion_high_low_pred`) |
+| Relapse prediction | AUROC, AUPRC, sensitivity, specificity, F1 (from binary `relapse_pred`; AUROC/AUPRC rank the 0/1 label, not a probability) |
+
+Outputs are written next to the predictions file:
+
+- `bootstrap_metric_cis.csv` — long-format table with task, metric, point estimate, CI bounds, replicate counts, and skip notes
+- `bootstrap_metric_cis.json` — same data plus metadata (`n_cases`, seed, interpretation notes)
+
+**One-off offline script** on an existing predictions CSV:
+
+```bash
+cd pipeline
+python scripts/bootstrap_approach1_metrics.py \
+  /path/to/shotset/modality/predictions_testing_cases.csv \
+  --bootstrap-n 1000 \
+  --bootstrap-seed 42
+```
+
+Use `--outdir` to write elsewhere; omit it to save alongside the predictions CSV.
+
+Pipeline flags: `--bootstrap-n` (default 1000; `0` disables), `--bootstrap-seed` (default 42).
 
 ### Approach 2 — nested lexical + ML evaluation
 
@@ -312,7 +343,7 @@ SANDBOX_API_KEY=dummy python approach2_generate_reports.py --help
 
 ## Outputs and logging
 
-- **Approach 1** writes per-config predictions, evaluation plots, `token_cost_report.json`, and a consolidated **`approach1_results_report.html`** under `--outdir`. Per-config and aggregate summaries include dispersion regression metrics plus high/low **accuracy/F1** (from the LLM binary label) and **AUROC/AUPRC** (from predicted dispersion score ranking).
+- **Approach 1** writes per-config predictions, evaluation plots, `token_cost_report.json`, **`bootstrap_metric_cis.csv`** / **`bootstrap_metric_cis.json`**, and a consolidated **`approach1_results_report.html`** under `--outdir`. Per-config and aggregate summaries include dispersion regression metrics plus high/low **accuracy/F1** (from the LLM binary label) and **AUROC/AUPRC** (from predicted dispersion score ranking). Bootstrap CIs cover continuous dispersion (Spearman, MAE), high/low classification (AUROC/AUPRC from score; sensitivity/specificity/F1 from binary label), and relapse (binary-label metrics; see bootstrap JSON metadata for AUROC interpretation).
 - **Approach 2** writes nested CV artifacts under `--out_dir`, including per-split lexicons, predictions, metrics (`nested_outer_metrics_summary.csv`), and three HTML review pages:
   - `automated_results_report.html` — performance metrics, calibration/ROC/PR plots, per-fold summaries
   - `interpretability_report.html` — feature density, coefficients, stability, MRI–pathology reliability

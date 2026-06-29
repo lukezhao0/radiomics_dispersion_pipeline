@@ -12,11 +12,14 @@ from .metrics import (
 )
 from .plots import plot_dispersion_scatter
 from .runner import evaluate_and_plot, explanation_text
+from .bootstrap import compute_and_save_bootstrap_cis, compute_approach1_bootstrap_cis
 from .results_report import REPORT_FILENAME, build_approach1_results_html, discover_config_dirs
 
 __all__ = [
     "evaluate_and_plot",
     "explanation_text",
+    "compute_and_save_bootstrap_cis",
+    "compute_approach1_bootstrap_cis",
     "build_approach1_results_html",
     "discover_config_dirs",
     "REPORT_FILENAME",

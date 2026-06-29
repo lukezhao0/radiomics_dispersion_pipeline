@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from sklearn.metrics import auc, precision_recall_curve, roc_curve
 
 
 def plot_dispersion_scatter(used: pd.DataFrame, out_path: str, title_suffix: str) -> None:
@@ -74,6 +75,45 @@ def plot_pred_dispersion_by_relapse(df: pd.DataFrame, out_path: str, title_suffi
     plt.title(f"Predicted Dispersion by True Relapse ({title_suffix})")
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
+    plt.close()
+
+
+def plot_relapse_roc_pr(df: pd.DataFrame, out_roc_path: str, out_pr_path: str, title_suffix: str) -> None:
+    mask = df["relapse_true"].notna() & df["relapse_pred"].notna()
+    used = df.loc[mask].copy()
+    if len(used) == 0:
+        return
+
+    y_true = used["relapse_true"].astype(int).values
+    scores = used["relapse_pred"].astype(float).values
+    if len(np.unique(y_true)) < 2:
+        return
+
+    fpr, tpr, _ = roc_curve(y_true, scores)
+    roc_auc = auc(fpr, tpr)
+    plt.figure()
+    plt.plot(fpr, tpr, label=f"AUROC = {roc_auc:.3f}")
+    plt.plot([0, 1], [0, 1], linestyle="--", color="gray", label="Chance")
+    plt.xlabel("False positive rate")
+    plt.ylabel("True positive rate")
+    plt.title(f"Relapse ROC Curve ({title_suffix})")
+    plt.legend(loc="lower right")
+    plt.tight_layout()
+    plt.savefig(out_roc_path, dpi=200)
+    plt.close()
+
+    precision, recall, _ = precision_recall_curve(y_true, scores)
+    pr_auc = auc(recall, precision)
+    prevalence = float(y_true.mean())
+    plt.figure()
+    plt.plot(recall, precision, label=f"AUPRC = {pr_auc:.3f}")
+    plt.axhline(prevalence, linestyle="--", color="gray", label=f"No-skill = {prevalence:.3f}")
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title(f"Relapse Precision-Recall Curve ({title_suffix})")
+    plt.legend(loc="upper right")
+    plt.tight_layout()
+    plt.savefig(out_pr_path, dpi=200)
     plt.close()
 
 

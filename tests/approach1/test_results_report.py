@@ -31,7 +31,13 @@ def _write_minimal_config(tmp_path, shotset: str, modality: str) -> str:
         "n_rows": 2,
         "dispersion_regression": {"mae": 10.5, "rmse": 12.0, "spearman_rho": 0.4},
         "dispersion_high_low": {"accuracy": 0.5, "f1": 0.5, "confusion_matrix": [[1, 0], [1, 0]]},
-        "relapse_label": {"accuracy": 1.0, "f1": 1.0, "confusion_matrix": [[2, 0], [0, 0]]},
+        "relapse_label": {
+            "accuracy": 1.0,
+            "f1": 1.0,
+            "auroc": 1.0,
+            "auprc": 1.0,
+            "confusion_matrix": [[2, 0], [0, 0]],
+        },
         "needle_retrieval": {"single_token_rate": 1.0, "single_token_failures": 0},
     }
     (cfg_dir / "evaluation_metrics_summary.json").write_text(json.dumps(metrics), encoding="utf-8")
@@ -101,6 +107,7 @@ def test_build_approach1_results_html(tmp_path) -> None:
     assert "Approach 1 Results Review" in html
     assert "shotset_a" in html
     assert "Dispersion MAE" in html
+    assert "Relapse AUROC" in html
     assert "Metric glossary" in html
     assert "Cost estimate vs actual" in html
     assert "cost_estimate_vs_actual_tokens.png" in html

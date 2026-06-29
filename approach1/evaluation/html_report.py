@@ -158,6 +158,14 @@ PLOT_EXPLANATIONS: dict[str, str] = {
         "Confusion matrix comparing predicted relapse label to true relapse status (0=non-relapsing, "
         "1=relapsing)."
     ),
+    "relapse_roc_curve.png": (
+        "ROC curve for relapse classification using relapse_pred as the ranking score. With binary "
+        "0/1 predictions the curve is a step function; AUROC summarizes overall ranking ability."
+    ),
+    "relapse_pr_curve.png": (
+        "Precision-recall curve for relapse classification using relapse_pred as the ranking score. "
+        "The dashed line is the no-skill baseline (prevalence of relapse in the held-out set)."
+    ),
     "predicted_dispersion_by_true_relapse.png": (
         "Distribution of predicted dispersion scores split by true relapse status. Helps visualize "
         "whether predicted dispersion separates relapsing from non-relapsing cases."

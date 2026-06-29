@@ -97,4 +97,36 @@ def test_relapse_classification_metrics():
     df = prepare_predictions_for_eval(_sample_predictions_df())
     _, _, metrics = evaluate_relapse_labels(df)
     assert metrics["accuracy"] == pytest.approx(2 / 3)
+    assert metrics["auroc"] == pytest.approx(0.75)
+    assert metrics["auprc"] == pytest.approx(0.8333333333333333)
+    assert metrics["auroc_score_source"] == "relapse_pred"
     assert "confusion_matrix" in metrics
+
+
+def test_relapse_auroc_undefined_single_class():
+    df = prepare_predictions_for_eval(
+        pd.DataFrame([
+            {
+                "dispersion_true": 100.0,
+                "dispersion_score_pred": 95.0,
+                "dispersion_high_low_pred": 1,
+                "relapse_true": 1,
+                "relapse_pred": 1,
+                "retrieval_token_exact_match": 1,
+                "key_evidence": [],
+            },
+            {
+                "dispersion_true": 90.0,
+                "dispersion_score_pred": 88.0,
+                "dispersion_high_low_pred": 1,
+                "relapse_true": 1,
+                "relapse_pred": 0,
+                "retrieval_token_exact_match": 1,
+                "key_evidence": [],
+            },
+        ])
+    )
+    _, _, metrics = evaluate_relapse_labels(df)
+    assert metrics["accuracy"] == pytest.approx(0.5)
+    assert metrics["auroc"] is None
+    assert "one class" in metrics["auroc_note"].lower()

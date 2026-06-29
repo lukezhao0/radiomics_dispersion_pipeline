@@ -271,6 +271,122 @@ def _df_to_markdown(df: pd.DataFrame, max_rows: int = 25, float_digits: int = 3)
         return tmp.to_csv(index=False)
 
 
+COMBINED_DATASET_KEY = "combined"
+COMBINED_LEADERBOARD_TOP_N = 10
+
+_COMBINED_LEADERBOARD_SPECS: Tuple[Dict[str, Any], ...] = (
+    {
+        "title": "Dispersion score regression (Spearman ρ)",
+        "task_type": "regression",
+        "target_name": TARGET_NAME_DISPERSION_SCORE,
+        "sort_cols": ("spearman_rho", "mae"),
+        "ascending": (False, True),
+        "display_cols": (
+            "rank", "representation", "model_key", "n",
+            "spearman_rho", "spearman_rho_ci_low", "spearman_rho_ci_high",
+            "mae", "rmse", "r2", "pearson_r",
+        ),
+    },
+    {
+        "title": "Dispersion high/low classification",
+        "task_type": "classification",
+        "target_name": TARGET_NAME_DISPERSION_HIGH_LOW,
+        "sort_cols": ("auroc", "auprc", "f1"),
+        "ascending": (False, False, False),
+        "display_cols": (
+            "rank", "representation", "model_key", "n",
+            "auroc", "auroc_ci_low", "auroc_ci_high",
+            "auprc", "f1", "brier", "balanced_accuracy",
+        ),
+    },
+    {
+        "title": "Relapse classification",
+        "task_type": "classification",
+        "target_name": TARGET_NAME_RELAPSE_STATUS,
+        "sort_cols": ("auprc", "auroc", "brier"),
+        "ascending": (False, False, True),
+        "display_cols": (
+            "rank", "representation", "model_key", "n",
+            "auprc", "auprc_ci_low", "auprc_ci_high",
+            "auroc", "f1", "brier", "recall_sensitivity", "specificity",
+        ),
+    },
+)
+
+
+def _rank_combined_models(
+    metrics_df: pd.DataFrame,
+    *,
+    task_type: str,
+    target_name: str,
+    sort_cols: Sequence[str],
+    ascending: Sequence[bool],
+    top_n: int = COMBINED_LEADERBOARD_TOP_N,
+) -> pd.DataFrame:
+    if metrics_df is None or len(metrics_df) == 0:
+        return pd.DataFrame()
+    df = metrics_df[
+        (metrics_df["dataset_key"].astype(str) == COMBINED_DATASET_KEY)
+        & (metrics_df["task_type"].astype(str) == task_type)
+        & (metrics_df["target_name"].astype(str) == target_name)
+    ].copy()
+    if len(df) == 0:
+        return pd.DataFrame()
+    present_sort_cols = [c for c in sort_cols if c in df.columns]
+    if not present_sort_cols:
+        return pd.DataFrame()
+    present_ascending = list(ascending[: len(present_sort_cols)])
+    df = df.sort_values(present_sort_cols, ascending=present_ascending).head(top_n).reset_index(drop=True)
+    df.insert(0, "rank", range(1, len(df) + 1))
+    return df
+
+
+def _select_display_columns(df: pd.DataFrame, preferred_cols: Sequence[str]) -> pd.DataFrame:
+    cols = [c for c in preferred_cols if c in df.columns]
+    return df[cols].copy() if cols else df.copy()
+
+
+def _build_combined_approach_best_models_parts(
+    metrics_df: pd.DataFrame,
+) -> Tuple[List[str], List[str], List[pd.DataFrame]]:
+    """Leaderboards for combined MRI+pathology early-fusion models."""
+    md_lines: List[str] = []
+    html_parts: List[str] = []
+    tables: List[pd.DataFrame] = []
+
+    intro = (
+        "Ranked held-out performance for early-fusion combined MRI + pathology models "
+        f"(`dataset_key = {COMBINED_DATASET_KEY}`). Regression models are ordered by Spearman ρ "
+        "(higher is better); high/low models by AUROC, then AUPRC and F1; relapse models by "
+        "AUPRC, then AUROC and Brier (lower is better)."
+    )
+    md_lines.append("## Combined MRI + pathology best models\n")
+    md_lines.append(intro + "\n")
+    html_parts.append(html_paragraph(intro))
+
+    for spec in _COMBINED_LEADERBOARD_SPECS:
+        ranked = _rank_combined_models(
+            metrics_df,
+            task_type=spec["task_type"],
+            target_name=spec["target_name"],
+            sort_cols=spec["sort_cols"],
+            ascending=spec["ascending"],
+        )
+        if len(ranked) == 0:
+            continue
+        display_df = _select_display_columns(ranked, spec["display_cols"])
+        tables.append(display_df)
+        md_lines.append(f"### {spec['title']}\n")
+        md_lines.append(_df_to_markdown(display_df, max_rows=COMBINED_LEADERBOARD_TOP_N))
+        md_lines.append("")
+        html_parts.append(f"<h3>{html.escape(spec['title'])}</h3>")
+        html_parts.append(df_to_html_table(display_df, max_rows=COMBINED_LEADERBOARD_TOP_N))
+
+    if not tables:
+        return [], [], []
+    return md_lines, html_parts, tables
+
+
 def _safe_savefig(path: str) -> None:
     _save_figure(path)
 
@@ -1210,6 +1326,11 @@ def generate_results_report(
         summary_rows.append({"selection": label, "dataset_key": row.get("dataset_key"), "representation": row.get("representation"), "model_key": row.get("model_key"), "target_name": row.get("target_name"), "mae": row.get("mae", np.nan), "spearman_rho": row.get("spearman_rho", np.nan), "auroc": row.get("auroc", np.nan), "auprc": row.get("auprc", np.nan), "f1": row.get("f1", np.nan), "brier": row.get("brier", np.nan)})
     lines.append(_df_to_markdown(pd.DataFrame(summary_rows), max_rows=20))
 
+    combined_md_lines, _, _ = _build_combined_approach_best_models_parts(metrics_df)
+    if combined_md_lines:
+        lines.append("\n")
+        lines.extend(combined_md_lines)
+
     lines.append("\n## Aggregate held-out metrics\n")
     preferred_cols = [c for c in ["target_name", "dataset_key", "representation", "model_key", "n", "mae", "mae_ci_low", "mae_ci_high", "rmse", "pearson_r", "spearman_rho", "r2", "accuracy", "balanced_accuracy", "f1", "auroc", "auprc", "auprc_no_skill_baseline", "brier", "precision_ppv", "recall_sensitivity", "specificity", "npv", "tn", "fp", "fn", "tp", "prevalence"] if c in metrics_df.columns]
     lines.append(_df_to_markdown(metrics_df[preferred_cols].sort_values(["target_name", "dataset_key"]) if len(metrics_df) and preferred_cols else metrics_df, max_rows=100))
@@ -1329,8 +1450,16 @@ def generate_results_report(
     if len(label_dist_df):
         html_sections.append(html_section("Label distributions", [df_to_html_table(label_dist_df, max_rows=20)]))
 
+    combined_md_lines, combined_html_parts, _ = _build_combined_approach_best_models_parts(metrics_df)
+
     html_sections.extend([
         html_section("Top model summary", [df_to_html_table(summary_df, max_rows=20)]),
+    ])
+    if combined_html_parts:
+        html_sections.append(
+            html_section("Combined MRI + pathology best models", combined_html_parts)
+        )
+    html_sections.extend([
         html_section("Aggregate held-out metrics", [df_to_html_table(metrics_table_df, max_rows=100)]),
         html_section("Relapse imbalance diagnostics", [
             df_to_html_table(relapse_balance_df, max_rows=50),

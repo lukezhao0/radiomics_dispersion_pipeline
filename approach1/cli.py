@@ -76,6 +76,18 @@ def main() -> None:
         help="Re-evaluate metrics/plots from saved predictions, rebuild aggregate summary and HTML report (no API calls).",
     )
     parser.add_argument(
+        "--bootstrap-n",
+        type=int,
+        default=config.DEFAULT_BOOTSTRAP_N,
+        help="Number of case-level bootstrap resamples for metric confidence intervals (0 to disable).",
+    )
+    parser.add_argument(
+        "--bootstrap-seed",
+        type=int,
+        default=config.DEFAULT_BOOTSTRAP_SEED,
+        help="Random seed for case-level bootstrap resampling.",
+    )
+    parser.add_argument(
         "--shotsets",
         nargs="+",
         default=None,
@@ -90,7 +102,11 @@ def main() -> None:
     selected_model = normalize_model_name(args.deployment or args.model)
 
     if args.results_report_only:
-        n = refresh_evaluations_from_predictions(args.outdir)
+        n = refresh_evaluations_from_predictions(
+            args.outdir,
+            n_bootstrap=args.bootstrap_n,
+            bootstrap_seed=args.bootstrap_seed,
+        )
         print(f"[RE-EVAL] Refreshed {n} config evaluation(s) from saved predictions.")
         build_approach1_results_html(args.outdir)
         return
@@ -151,6 +167,8 @@ def main() -> None:
                     resume=args.resume,
                     skip_completed_configs=args.skip_completed_configs,
                     force_rerun_cases=args.force_rerun_cases,
+                    n_bootstrap=args.bootstrap_n,
+                    bootstrap_seed=args.bootstrap_seed,
                 )
                 aggregate_summaries.append({
                     "shotset_name": rc.shotset_name,

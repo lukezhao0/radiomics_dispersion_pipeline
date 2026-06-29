@@ -165,15 +165,30 @@ def evaluate_relapse_labels(df: pd.DataFrame) -> Tuple[str, pd.DataFrame, Dict[s
     f1v = f1_score(y_true, y_pred, zero_division=0)
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
 
+    metrics: Dict[str, Any] = {"accuracy": acc, "f1": f1v, "confusion_matrix": cm}
+    auroc, auprc, note = safe_auroc_auprc(y_true, y_pred.astype(float))
+    metrics.update(
+        {
+            "auroc": auroc,
+            "auprc": auprc,
+            "auroc_note": note,
+            "auroc_score_source": "relapse_pred",
+        }
+    )
+
     lines = [
-        "Relapse (classification; label-only):",
+        "Relapse (classification):",
         f"  N_used = {len(used)} / {len(df)}",
-        f"  Accuracy = {acc:.4f}",
+        f"  Accuracy = {acc:.4f}  (from relapse_pred)",
         f"  F1       = {f1v:.4f}",
         "  Confusion matrix (rows=true [0,1], cols=pred [0,1]):",
         f"  {cm.tolist()}",
+        "  Score-based ranking (relapse_pred vs true relapse):",
+        f"    AUROC = {auroc if auroc is not None else 'NA'}",
+        f"    AUPRC = {auprc if auprc is not None else 'NA'}",
+        f"    Note: {note}",
     ]
-    return "\n".join(lines), used, {"accuracy": acc, "f1": f1v, "confusion_matrix": cm}
+    return "\n".join(lines), used, metrics
 
 
 def safe_auroc_auprc(y_true: np.ndarray, scores: np.ndarray) -> Tuple[Optional[float], Optional[float], str]:

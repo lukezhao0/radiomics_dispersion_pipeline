@@ -41,6 +41,8 @@ PLOT_FILES_IN_ORDER = [
     "dispersion_residuals_hist.png",
     "dispersion_high_low_confusion_matrix.png",
     "relapse_confusion_matrix.png",
+    "relapse_roc_curve.png",
+    "relapse_pr_curve.png",
     "predicted_dispersion_by_true_relapse.png",
     "relapse_predictor_comparison.png",
     "needle_retrieval_rates.png",
@@ -113,6 +115,8 @@ def _metrics_cards_from_summary(metrics: Dict[str, Any]) -> Dict[str, tuple[str,
         "High/low AUPRC": (_fmt_float(dhl.get("auprc")), "Ranking by predicted dispersion score"),
         "Relapse accuracy": (_fmt_float(rel.get("accuracy")), "Binary relapse label match"),
         "Relapse F1": (_fmt_float(rel.get("f1")), "Important when relapse is imbalanced"),
+        "Relapse AUROC": (_fmt_float(rel.get("auroc")), "Ranking by LLM relapse_pred"),
+        "Relapse AUPRC": (_fmt_float(rel.get("auprc")), "Ranking by LLM relapse_pred"),
         "Needle retrieval": (_fmt_float(needle.get("single_token_rate")), "Exact validation-token echo rate"),
     }
 

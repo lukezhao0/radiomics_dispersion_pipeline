@@ -44,6 +44,8 @@ def run_one_config(
     resume: bool = True,
     skip_completed_configs: bool = True,
     force_rerun_cases: bool = False,
+    n_bootstrap: int | None = None,
+    bootstrap_seed: int | None = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     os.makedirs(rc.run_out_dir, exist_ok=True)
     predictions_csv = os.path.join(rc.run_out_dir, "predictions_testing_cases.csv")
@@ -160,7 +162,13 @@ def run_one_config(
     print(f"[COST] Wrote token/cost report: {cost_json}")
 
     title_suffix = f"{rc.shotset_name} / {modality_display_name(rc.modality)}"
-    eval_summary = evaluate_and_plot(pred_df, rc.run_out_dir, title_suffix)
+    eval_summary = evaluate_and_plot(
+        pred_df,
+        rc.run_out_dir,
+        title_suffix,
+        n_bootstrap=n_bootstrap,
+        bootstrap_seed=bootstrap_seed,
+    )
     save_completed_config_checkpoint(rc.run_out_dir, rc, n_new_api_calls)
     return pred_df, eval_summary
 
@@ -183,6 +191,8 @@ def save_aggregate_summary(root_out_dir: str, summaries: List[Dict[str, Any]]) -
             "dispersion_high_low_auprc": metrics.get("dispersion_high_low", {}).get("auprc"),
             "relapse_accuracy": metrics.get("relapse_label", {}).get("accuracy"),
             "relapse_f1": metrics.get("relapse_label", {}).get("f1"),
+            "relapse_auroc": metrics.get("relapse_label", {}).get("auroc"),
+            "relapse_auprc": metrics.get("relapse_label", {}).get("auprc"),
             "needle_single_token_rate": metrics.get("needle_retrieval", {}).get("single_token_rate"),
         })
     df = pd.DataFrame(rows)
@@ -191,7 +201,12 @@ def save_aggregate_summary(root_out_dir: str, summaries: List[Dict[str, Any]]) -
     print(f"[SUMMARY] Wrote aggregate metrics summary: {path}")
 
 
-def refresh_evaluations_from_predictions(root_out_dir: str) -> int:
+def refresh_evaluations_from_predictions(
+    root_out_dir: str,
+    *,
+    n_bootstrap: int | None = None,
+    bootstrap_seed: int | None = None,
+) -> int:
     """Re-run evaluate_and_plot from saved predictions CSVs (no API calls)."""
     from .evaluation.results_report import discover_config_dirs
 
@@ -210,7 +225,13 @@ def refresh_evaluations_from_predictions(root_out_dir: str) -> int:
                 run_cfg = json.load(f)
         title_suffix = f"{shotset_name} / {modality_display_name(modality)}"
         print(f"[RE-EVAL] Refreshing metrics: {title_suffix}")
-        eval_summary = evaluate_and_plot(pred_df, config_dir, title_suffix)
+        eval_summary = evaluate_and_plot(
+            pred_df,
+            config_dir,
+            title_suffix,
+            n_bootstrap=n_bootstrap,
+            bootstrap_seed=bootstrap_seed,
+        )
         summaries.append({
             "shotset_name": shotset_name,
             "modality": modality,

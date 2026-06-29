@@ -14,6 +14,7 @@ Both pipelines use the Stanford Health Care AI Sandbox (GPT-5-nano Global) for L
 | **Package**         | `approach1/`                                                             | `approach2/`                                                                    |
 | **Change log**      | [`approach1_progress.md`](approach1_progress.md)                         | [`approach2_progress.md`](approach2_progress.md)                                |
 | **Cross-run compare** | [`experiment_comparison/`](experiment_comparison/) — compare completed runs (config-driven metrics, plots, HTML report) | Both approaches |
+| **Combined-modality audit** | [`metrics_audit/`](metrics_audit/) — offline MRI+pathology metrics audit with bootstrap CIs | Both approaches |
 
 **Approach 1** runs a SecureGPT few-shot evaluation across shot sets and modality tiers (MRI, pathology, combined). It predicts continuous dispersion, binary high/low dispersion, and relapse status directly from report text.
 
@@ -261,6 +262,19 @@ python -m experiment_comparison.run_comparison \
 
 For Approach 1 runs created before high/low AUROC was added, backfill first with `--results-report-only` (see above). See [`experiment_comparison/README.md`](experiment_comparison/README.md) for configuration, supported artifacts, best-metric rules, and how to add future runs.
 
+### Combined-modality metrics audit (offline)
+
+Recompute and document **fused MRI + pathology** metrics for Approach 1 and Approach 2 from saved predictions (no API calls). Produces bootstrap 95% CIs, comparability notes, and a conference-ready results paragraph.
+
+```bash
+MPLCONFIGDIR=/tmp/mplcache .venv/bin/python pipeline/metrics_audit/compute_unified_metrics.py \
+  --approach1-dir sabcs/securegpt_dispersion_approach1_pipeline_062726 \
+  --approach2-dir sabcs/securegpt_dispersion_approach2_pipeline_062726 \
+  --outdir sabcs/metrics_audit_combined_modality
+```
+
+See [`metrics_audit/README.md`](metrics_audit/README.md) for scope confirmation, headline results, comparability caveats, and reviewer phrasing guidance.
+
 ## Project layout
 
 ```
@@ -305,6 +319,9 @@ pipeline/
 │   ├── prompts/                # extraction templates, builder
 │   ├── html_report.py
 │   └── logging_setup.py
+├── metrics_audit/              # combined MRI+pathology offline metrics audit
+│   ├── README.md
+│   └── compute_unified_metrics.py
 ├── experiment_comparison/      # cross-run comparison (config → CSV + plots + HTML)
 │   ├── README.md
 │   ├── run_comparison.py       # CLI entry point
@@ -367,3 +384,4 @@ See [`approach1_progress.md`](approach1_progress.md) and [`approach2_progress.md
 - [`approach1_progress.md`](approach1_progress.md) — API migration, cost estimation, resume/checkpoint behavior, modality tiers.
 - [`approach2_progress.md`](approach2_progress.md) — pathology-informed MRI calibration, relapse prediction, fold parallelism, modularization history, and deferred regression-test work.
 - [`experiment_comparison/README.md`](experiment_comparison/README.md) — cross-run comparison framework, config format, and current 0623–0624 experiment batch.
+- [`metrics_audit/README.md`](metrics_audit/README.md) — combined MRI+pathology metrics audit, headline results, and comparability notes for Approach 1 vs Approach 2.

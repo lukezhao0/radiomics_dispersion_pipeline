@@ -20,6 +20,9 @@ results/
 logs/
 *.log
 
+# Data
+*.csv
+
 # --- Added on branch setup/claude-onboarding (2026-10-22) ---
 # Data files: may contain PHI
 *.csv

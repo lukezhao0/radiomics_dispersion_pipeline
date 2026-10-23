@@ -175,6 +175,18 @@ every reference that would need updating (found by `git grep` on 2026-10-22).
 
 ## Session log
 
+### 2026-10-22: Report-trimming rules, from `aux/trim.py` and `aux/filter_data.py`
+
+- No code changes and no data files opened. The scripts were not run.
+- `aux/trim.py` and `aux/filter_data.py` are in the working tree (untracked; no commit records a run). Wrote `docs/analysis/previous-report-trimming-investigation.md` from those sources.
+- `trim.py` drops blank-line blocks whose first line starts with a fixed heading list. MRI: indication, comparison, procedure, technique, date, contrast, reference. Pathology: accession number, operation, block key, reference. `filter_data.py` copies 11 columns and does not edit cell text. `shorten_for_prompt` still returns its input unchanged.
+- Unknown on purpose: character totals, whether real reports used blank lines between headings, and whether either script was actually run on the cohort file.
+
+### 2026-10-22: Previous report-trimming investigation
+
+- No code changes and no data files opened. At that point the trim scripts were outside the working directory and were not read.
+- The entry above replaces the open question from this pass. The modeling side of the finding still holds: this repo's loaders do not cut text inside a report.
+
 ### 2026-10-22: Claude Code onboarding (branch `setup/claude-onboarding`)
 
 - Read-only code review; no code executed, no data files opened.

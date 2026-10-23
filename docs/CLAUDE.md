@@ -39,8 +39,9 @@ or print `.env`.
 | `experiment_comparison/` | Compare completed run dirs from a YAML config (no re-fit). See its README |
 | `metrics_audit/` | Offline combined-modality (MRI+pathology) A1 vs A2 audit. See its README |
 | `scripts/` | Flowchart renderers, offline A1 bootstrap, unified combined-modality eval |
+| `aux/` | Standalone offline scripts. `trim.py` deletes report sections; `filter_data.py` copies a fixed set of columns. Neither is called by the modeling code. See `docs/analysis/previous-report-trimming-investigation.md` |
 | `tests/` | pytest, synthetic fixtures only: `approach1/`, `approach2/`, `common/` |
-| `docs/` | This file, architecture, guide, progress, glossary, ADRs, flowcharts |
+| `docs/` | This file, architecture, guide, progress, glossary, ADRs, flowcharts, `analysis/` |
 | `approach1_progress.md`, `approach2_progress.md` | Historical change logs (dated entries; code supersedes them) |
 
 ## How to run each stage (FOR THE HUMAN TO RUN; the agent must not run these)
@@ -96,6 +97,7 @@ SANDBOX_API_KEY=dummy python approach2.py --help
 - `docs/GLOSSARY.md`: domain and statistical terms
 - `docs/decisions/`: ADRs for the main design choices
 - `docs/approach2_feature_stability_and_selection.md`: method note on rediscovery and feature counts
+- `docs/analysis/previous-report-trimming-investigation.md`: what `aux/trim.py` and `aux/filter_data.py` do to report text
 - `experiment_comparison/README.md`, `metrics_audit/README.md`
 
 ## How to work here

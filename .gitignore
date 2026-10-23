@@ -19,3 +19,47 @@ outputs/
 results/
 logs/
 *.log
+
+# --- Added on branch setup/claude-onboarding (2026-10-22) ---
+# Data files: may contain PHI
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.parquet
+*.feather
+*.pkl
+*.pickle
+*.rds
+*.RData
+*.h5
+*.hdf5
+*.hl7
+*.dcm
+*.nii
+*.nii.gz
+
+# Data, output and log folders (anywhere in the tree)
+data/
+raw/
+output/
+outputs/
+results/
+logs/
+cache/
+tmp/
+exports/
+
+# Pipeline run directory created in the repo by default (approach1/config.py OUT_DIR)
+securegpt_dispersion_3tier_outputs/
+
+# Notebooks, caches, build artifacts
+.ipynb_checkpoints/
+.mplconfig/
+*.egg-info/
+build/
+dist/
+
+# Secrets
+.env.*
+!.env.example
